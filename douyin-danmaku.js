@@ -53,9 +53,19 @@ class DouyinDanmakuClient {
     this._roomId = null;
     this._proto = null;
     this._hbTimer = null;
+    this._reconnectTimer = null;
+    this._inactivityTimer = null;
+    this.status = "idle";
+    this.connectedAt = 0;
+    this.lastMessageAt = 0;
+    this.lastEventAt = 0;
+    this.lastError = "";
+    this.reconnectCount = 0;
   }
 
   async start() {
+    this.closed = false;
+    this.status = "starting";
     try {
       // 1. 获取 ttwid + roomId
       await this._fetchRoomInfo();
@@ -64,14 +74,36 @@ class DouyinDanmakuClient {
       // 3. 连接 WebSocket
       this._connectWS();
     } catch (e) {
+      this.status = "error";
+      this.lastError = e.message;
       this.onEvent({ type: "error", message: "启动失败: " + e.message });
+      this._scheduleReconnect(true);
     }
   }
 
   stop() {
     this.closed = true;
+    this.status = "stopped";
     if (this._hbTimer) { clearInterval(this._hbTimer); this._hbTimer = null; }
+    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+    if (this._inactivityTimer) { clearInterval(this._inactivityTimer); this._inactivityTimer = null; }
     if (this.ws) { try { this.ws.close(); } catch (e) {} this.ws = null; }
+  }
+
+  _scheduleReconnect(refreshRoomInfo = false) {
+    if (this.closed || this._reconnectTimer) return;
+    this.reconnectCount += 1;
+    this.status = "reconnecting";
+    const delay = Math.min(30000, 2000 * Math.pow(2, Math.min(this.reconnectCount - 1, 4)));
+    this._reconnectTimer = setTimeout(async () => {
+      this._reconnectTimer = null;
+      if (this.closed) return;
+      if (refreshRoomInfo) {
+        this._ttwid = null;
+        this._roomId = null;
+      }
+      await this.start();
+    }, delay);
   }
 
   /* ====== 内部方法 ====== */
@@ -189,6 +221,9 @@ class DouyinDanmakuClient {
   }
 
   _connectWS() {
+    if (this.closed || (this.ws && [WebSocket.CONNECTING, WebSocket.OPEN].includes(this.ws.readyState))) return;
+    this.closed = false;
+    this.status = "connecting";
     const did_rule = "3";
     const user_unique_id = String(Math.floor(Math.random() * 1e16));
     const cursor = `d-1_u-1_fh-${Date.now()}000_t-${Date.now()}000_r-1`;
@@ -225,10 +260,17 @@ class DouyinDanmakuClient {
       "User-Agent": UA
     };
 
-    this.ws = new WebSocket(wssUrl, { headers });
+    const socket = new WebSocket(wssUrl, { headers });
+    this.ws = socket;
 
-    this.ws.on("open", () => {
+    socket.on("open", () => {
+      if (this.ws !== socket || this.closed) return;
       console.log("[dy-danmaku] WebSocket 连接成功");
+      this.status = "connected";
+      this.connectedAt = Date.now();
+      this.lastMessageAt = Date.now();
+      this.lastError = "";
+      this.reconnectCount = 0;
       this.onEvent({ type: "connected", roomId: this._roomId, roomUrl: this.roomUrl });
       // 心跳
       this._hbTimer = setInterval(() => {
@@ -239,10 +281,20 @@ class DouyinDanmakuClient {
           this.ws.ping(hb);
         } catch (e) {}
       }, 5000);
+      if (this._inactivityTimer) clearInterval(this._inactivityTimer);
+      this._inactivityTimer = setInterval(() => {
+        if (this.closed || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        if (Date.now() - this.lastMessageAt > 45000) {
+          this.lastError = "45秒未收到抖音上游消息";
+          try { this.ws.terminate(); } catch (e) {}
+        }
+      }, 10000);
     });
 
-    this.ws.on("message", (data) => {
+    socket.on("message", (data) => {
+      if (this.ws !== socket || this.closed) return;
       try {
+        this.lastMessageAt = Date.now();
         if (global.__dyMsgCount === undefined) global.__dyMsgCount = 0;
         global.__dyMsgCount++;
         if (global.__dyMsgCount % 50 === 0 || global.__dyMsgCount <= 3) {
@@ -254,17 +306,22 @@ class DouyinDanmakuClient {
       }
     });
 
-    this.ws.on("close", (code, reason) => {
+    socket.on("close", (code, reason) => {
+      if (this.ws !== socket) return;
       console.log("[dy-danmaku] WebSocket 关闭:", code, reason?.toString());
       clearInterval(this._hbTimer);
+      clearInterval(this._inactivityTimer);
+      this._hbTimer = null;
+      this._inactivityTimer = null;
+      this.ws = null;
+      if (!this.closed) this.status = "disconnected";
       this.onEvent({ type: "disconnected", code, reason: reason?.toString() });
-      if (!this.closed) {
-        // 10 秒后重连
-        setTimeout(() => { if (!this.closed) this._connectWS(); }, 10000);
-      }
+      this._scheduleReconnect(false);
     });
 
-    this.ws.on("error", (err) => {
+    socket.on("error", (err) => {
+      if (this.ws !== socket) return;
+      this.lastError = err.message;
       console.error("[dy-danmaku] WebSocket 错误:", err.message);
     });
   }
@@ -322,6 +379,7 @@ class DouyinDanmakuClient {
         console.log(`[dy-danmaku] 最近 5 条 method: ${msg.method} → event=${event ? event.type : "null"}`);
       }
       if (event) {
+        this.lastEventAt = Date.now();
         global.__dyEventCount++;
         if (global.__dyEventCount <= 3 || global.__dyEventCount % 10 === 0) {
           console.log(`[dy-danmaku] 事件 #${global.__dyEventCount}: ${event.type} ${event.userName || ""} ${event.content || event.giftName || ""}`.slice(0, 120));

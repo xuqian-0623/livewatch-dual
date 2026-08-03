@@ -139,8 +139,11 @@
       this.danmakuRetryTimer = null;
       this.xfRetryTimer = null;
       this.playbackWatchTimer = null;
+      this.transcodeHealthTimer = null;
       this.lastVideoTime = 0;
       this.stagnantTicks = 0;
+      this.serverGeneration = null;
+      this.healthFailures = 0;
       this.audioUnlocked = false;
       this.danmaku = [];
       this.transcripts = [];
@@ -206,7 +209,10 @@
         runtime.setStreamLabel(runtime.playerType === "hls" ? "HLS FIRST FRAME" : "FLV FIRST FRAME");
         runtime.hideVideoState();
         runtime.hidePlayGate();
-        if (runtime.playerType === "hls") runtime.startPlaybackWatch(runtime.epoch);
+        if (runtime.playerType === "hls") {
+          runtime.startPlaybackWatch(runtime.epoch);
+          runtime.startTranscodeHealthWatch(runtime.epoch);
+        }
         runtime.startASR();
       });
       this.video.addEventListener("waiting", function () {
@@ -281,6 +287,45 @@
       }, 3000);
     }
 
+    startTranscodeHealthWatch(token) {
+      clearInterval(this.transcodeHealthTimer);
+      this.healthFailures = 0;
+      this.transcodeHealthTimer = setInterval(async () => {
+        if (token !== this.epoch || this.manualStopped || this.playerType !== "hls") return;
+        try {
+          const response = await fetchWithTimeout("/api/transcode/status?roomId=" + encodeURIComponent(this.roomId), {}, 6000);
+          const data = await response.json();
+          if (token !== this.epoch || this.manualStopped) return;
+          if (!response.ok || data.ok === false) throw new Error(data.reason || "转码状态不可用");
+          this.healthFailures = 0;
+          const generation = Number(data.generation) || 0;
+          if (this.serverGeneration === null) this.serverGeneration = generation;
+          if (data.status === "recovering") {
+            this.setStatus("pending", "服务端恢复中");
+            this.setStreamLabel("HLS RECOVERING");
+            return;
+          }
+          if (data.status === "error" && !data.recovering) {
+            this.setStatus("bad", data.staleReason === "RECOVERY_LIMIT" ? "恢复次数已达上限" : "转码异常");
+            return;
+          }
+          if (generation !== this.serverGeneration && data.status === "transcoding") {
+            this.serverGeneration = generation;
+            this.setStatus("pending", "服务端已恢复");
+            this.setStreamLabel("HLS RELOADING");
+            const hlsUrl = (data.hlsUrl || "/streams/" + this.roomId + "/index.m3u8") + "?generation=" + generation + "&t=" + Date.now();
+            this.playHls(hlsUrl, token);
+          } else if (data.status === "transcoding" && data.lastProgressAgoMs < 12000 && this.hasFirstFrame) {
+            this.setStatus("ok", "视频已打通");
+            this.setStreamLabel("HLS LIVE");
+          }
+        } catch (error) {
+          this.healthFailures += 1;
+          if (this.healthFailures >= 3) this.setStatus("pending", "健康检查重试中");
+        }
+      }, 8000);
+    }
+
     async start(resetRetries) {
       if (this.connecting) {
         this.setStatus("pending", "正在连接，请稍候");
@@ -307,6 +352,7 @@
       this.setStreamLabel("STREAM");
       this.setVideoState("正在准备连接", this.url);
       if (resetRetries !== false) this.streamRetries = 0;
+      this.serverGeneration = null;
       this.danmakuRetries = 0;
       this.xfRetries = 0;
       // 仅清理浏览器资源；服务端 start 接口会原子停止同 roomId 的旧进程。
@@ -391,12 +437,15 @@
       clearTimeout(this.danmakuRetryTimer);
       clearTimeout(this.xfRetryTimer);
       clearInterval(this.playbackWatchTimer);
+      clearInterval(this.transcodeHealthTimer);
       this.pollTimer = null;
       this.streamRetryTimer = null;
       this.danmakuRetryTimer = null;
       this.xfRetryTimer = null;
       this.playbackWatchTimer = null;
+      this.transcodeHealthTimer = null;
       this.stagnantTicks = 0;
+      this.healthFailures = 0;
     }
 
     destroyPlayer() {
@@ -693,6 +742,7 @@
           } else if (message.type === "closed") {
             const detail = String(message.message || (message.code ? "代码 " + message.code : "上游已断开"));
             this.q('[data-role="asr-state"]').textContent = "ASR 断开：" + detail.slice(0, 24);
+            try { ws.close(1012, "upstream closed"); } catch (error) {}
           }
         };
         ws.onclose = () => {
@@ -712,7 +762,7 @@
       this.xfRetries += 1;
       this.xfRetryTimer = setTimeout(() => {
         this.xfRetryTimer = null;
-        if (!this.video.paused) this.startASR();
+        if (!this.manualStopped) this.startASR();
       }, 2200 * this.xfRetries);
     }
 

@@ -36,6 +36,13 @@ const DY_DANMAKU = new Map(); // roomId -> { client, subs:Set(res), sockets:Set(
 const ACTIVE_DUAL_SESSIONS = new Map(); // roomId -> { sessionId, activatedAt }
 const DOUYIN_RESOLVE_CACHE = new Map(); // roomUrl -> { result, expiresAt }
 const DOUYIN_RESOLVE_PENDING = new Map(); // roomUrl -> Promise
+const TRANSCODE_RECOVERY_HISTORY = new Map(); // roomId -> 最近十分钟自动恢复时间
+const TRANSCODE_GENERATIONS = new Map(); // roomId -> 每次新进程单调递增版本
+const ASR_SESSIONS = new Set();
+const HLS_START_TIMEOUT_MS = Number(process.env.HLS_START_TIMEOUT_MS) || 45000;
+const HLS_STALL_TIMEOUT_MS = Number(process.env.HLS_STALL_TIMEOUT_MS) || 20000;
+const RECOVERY_WINDOW_MS = 10 * 60 * 1000;
+const MAX_RECOVERIES_PER_WINDOW = Number(process.env.MAX_TRANSCODE_RECOVERIES) || 5;
 const PUBLIC_MODE = process.env.PUBLIC_MODE === "true" || process.env.NODE_ENV === "production";
 const PUBLIC_ROOM_MAP = new Map([
   ["dual-room-1", "https://live.douyin.com/214698741282"],
@@ -60,6 +67,10 @@ function validatePublicRoom(roomId, rawUrl) {
     return { ok: false, reason: "公网模式仅允许监控预设的两个公司直播间" };
   }
   return { ok: true, url: expected };
+}
+
+function validateRoomId(roomId) {
+  return /^[A-Za-z0-9_-]{1,64}$/.test(String(roomId || ""));
 }
 
 function validatePublicResolve(rawUrl) {
@@ -92,7 +103,7 @@ function startDyDanmaku(roomId, roomUrl, res) {
       const line = "data: " + JSON.stringify(ev) + "\n\n";
       for (const s of entry.subs) { try { s.write(line); } catch (e) {} }
     });
-    entry = { client, subs: new Set(), sockets: new Set() };
+    entry = { client, roomUrl, subs: new Set(), sockets: new Set() };
     DY_DANMAKU.set(roomId, entry);
     client.start();
     console.log(`[douyin] 弹幕客户端已启动: ${roomUrl}`);
@@ -103,6 +114,7 @@ function startDyDanmaku(roomId, roomUrl, res) {
     entry.subs.delete(res);
     if (entry.subs.size === 0) {
       entry._gcTimer = setTimeout(() => {
+        if (DY_DANMAKU.get(roomId) !== entry) return;
         entry.client.stop();
         DY_DANMAKU.delete(roomId);
         console.log(`[douyin] 弹幕客户端已清理: ${roomId}`);
@@ -446,15 +458,118 @@ function findFFmpeg() {
   return null;
 }
 
-// 房间转码状态: roomId → { proc, url, status, startTime, errors, output }
+// 房间转码状态: roomId → { proc, sourceRoomUrl, status, HLS进展, 恢复统计 }
 const TRANSCODES = new Map();
+
+function recoveryHistory(roomId) {
+  const cutoff = Date.now() - RECOVERY_WINDOW_MS;
+  const recent = (TRANSCODE_RECOVERY_HISTORY.get(roomId) || []).filter(time => time >= cutoff);
+  TRANSCODE_RECOVERY_HISTORY.set(roomId, recent);
+  return recent;
+}
+
+function waitForProcessExit(proc, timeoutMs = 4000) {
+  if (!proc || proc.exitCode !== null) return Promise.resolve();
+  return new Promise(resolve => {
+    let settled = false;
+    let forceTimer = null;
+    let doneTimer = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(forceTimer);
+      clearTimeout(doneTimer);
+      proc.removeListener("close", finish);
+      resolve();
+    };
+    proc.once("close", finish);
+    try { proc.kill("SIGTERM"); } catch (e) { finish(); return; }
+    forceTimer = setTimeout(() => {
+      try { if (proc.exitCode === null) proc.kill("SIGKILL"); } catch (e) {}
+    }, Math.max(1000, timeoutMs - 1000));
+    doneTimer = setTimeout(() => {
+      if (proc.exitCode === null) {
+        try { proc.kill("SIGKILL"); } catch (e) {}
+      }
+      finish();
+    }, timeoutMs);
+  });
+}
+
+function scheduleTranscodeRecovery(roomId, state, reason) {
+  if (!state || TRANSCODES.get(roomId) !== state || state.status === "stopped" || state.recoveryScheduled) return;
+  const recent = recoveryHistory(roomId);
+  if (recent.length >= MAX_RECOVERIES_PER_WINDOW) {
+    state.recoveryScheduled = true;
+    state.status = "error";
+    state.staleReason = "RECOVERY_LIMIT";
+    if (state.readyCheck) clearInterval(state.readyCheck);
+    try { if (state.proc && state.proc.exitCode === null) state.proc.kill("SIGTERM"); } catch (e) {}
+    state.errors.push(`自动恢复已达上限：${reason}`);
+    state.errors = state.errors.slice(-3);
+    log(`[${roomId}] 自动恢复已达上限，停止重试: ${reason}`);
+    return;
+  }
+  recent.push(Date.now());
+  TRANSCODE_RECOVERY_HISTORY.set(roomId, recent);
+  state.recoveryScheduled = true;
+  state.status = "recovering";
+  state.staleReason = reason;
+  const delay = Math.min(20000, 2000 * Math.pow(2, Math.max(0, recent.length - 1)));
+  log(`[${roomId}] ${reason}，${delay / 1000}秒后重新解析直播源并恢复转码`);
+  state.recoveryTimer = setTimeout(async () => {
+    if (TRANSCODES.get(roomId) !== state || state.status === "stopped") return;
+    try {
+      let resolved = null;
+      if (state.sourceRoomUrl && /live\.(douyin|bilibili|kuaishou)\.com\//i.test(state.sourceRoomUrl)) {
+        resolved = await resolveStream(state.sourceRoomUrl, { force: true });
+        if (!resolved || !resolved.ok) throw new Error(resolved?.reason || "重新解析直播源失败");
+      }
+      const nextUrl = resolved?.url || state.sourceUrl;
+      const nextHeaders = resolved?.extraHeaders || state.extraHeaders || [];
+      state.status = "recovering";
+      await waitForProcessExit(state.proc);
+      if (state.proc && state.proc.exitCode === null) throw new Error("旧 FFmpeg 未能退出，已阻止重复进程写入");
+      if (TRANSCODES.get(roomId) !== state || state.status === "stopped") return;
+      TRANSCODES.delete(roomId);
+      const result = startTranscode(roomId, nextUrl, nextHeaders, state.sourceRoomUrl || "");
+      if (!result.ok) {
+        TRANSCODES.set(roomId, state);
+        throw new Error(result.reason || "恢复转码失败");
+      }
+      const nextState = TRANSCODES.get(roomId);
+      if (nextState) {
+        nextState.restartCount = recent.length;
+        nextState.lastRecoveryReason = reason;
+      }
+    } catch (error) {
+      if (TRANSCODES.get(roomId) !== state) return;
+      state.recoveryScheduled = false;
+      state.status = "error";
+      state.errors.push(`自动恢复失败: ${error.message}`);
+      state.errors = state.errors.slice(-3);
+      log(`[${roomId}] 自动恢复失败: ${error.message}`);
+      state.recoveryTimer = setTimeout(() => {
+        state.recoveryTimer = null;
+        scheduleTranscodeRecovery(roomId, state, "RECOVERY_RETRY");
+      }, Math.min(30000, delay * 2));
+    }
+  }, delay);
+}
 
 function startTranscode(roomId, url, extraHeaders, sourceRoomUrl) {
   const existing = TRANSCODES.get(roomId);
-  if (PUBLIC_MODE && existing && existing.sourceRoomUrl === sourceRoomUrl && ["starting", "transcoding"].includes(existing.status)) {
+  if (PUBLIC_MODE && existing && existing.sourceRoomUrl === sourceRoomUrl && ["starting", "transcoding", "recovering"].includes(existing.status)) {
     return { ok: true, roomId, hlsUrl: `/streams/${roomId}/index.m3u8`, shared: true };
   }
-  stopTranscode(roomId);
+  if (existing && existing.proc && existing.proc.exitCode === null) {
+    existing.status = "stopped";
+    if (existing.readyCheck) clearInterval(existing.readyCheck);
+    if (existing.recoveryTimer) clearTimeout(existing.recoveryTimer);
+    try { existing.proc.kill("SIGTERM"); } catch (e) {}
+    return { ok: false, reason: "旧转码正在停止，请稍后重试" };
+  }
+  if (existing) stopTranscode(roomId);
   if (!FFMPEG_PATH) return { ok: false, reason: "FFmpeg 未安装" };
 
   const roomDir = path.join(STREAMS_DIR, roomId);
@@ -511,7 +626,29 @@ function startTranscode(roomId, url, extraHeaders, sourceRoomUrl) {
 
   try {
     const proc = spawn(FFMPEG_PATH, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-    const state = { proc, url, sourceUrl: url, sourceRoomUrl: sourceRoomUrl || "", extraHeaders, status: "starting", startTime: Date.now(), errors: [], output: "" };
+    const generation = (TRANSCODE_GENERATIONS.get(roomId) || 0) + 1;
+    TRANSCODE_GENERATIONS.set(roomId, generation);
+    const state = {
+      proc,
+      generation,
+      url,
+      sourceUrl: url,
+      sourceRoomUrl: sourceRoomUrl || "",
+      extraHeaders,
+      status: "starting",
+      startTime: Date.now(),
+      errors: [],
+      output: "",
+      playlistExists: false,
+      playlistSize: 0,
+      playlistMtimeMs: 0,
+      lastSegment: "",
+      lastProgressAt: Date.now(),
+      restartCount: recoveryHistory(roomId).length,
+      lastExitCode: null,
+      staleReason: "",
+      recoveryScheduled: false
+    };
     TRANSCODES.set(roomId, state);
 
     proc.stderr.on("data", chunk => {
@@ -520,63 +657,59 @@ function startTranscode(roomId, url, extraHeaders, sourceRoomUrl) {
       // 检测关键错误
       if (t.includes("403 Forbidden") || t.includes("404 Not Found") || t.includes("Immediate exit") || t.includes("Server returned 4") || t.includes("Server returned 5")) {
         if (state.errors.length < 3) state.errors.push(t.slice(0, 300));
-        if (state.status === "starting" || state.status === "transcoding") state.status = "error";
+        state.staleReason = "SOURCE_HTTP_ERROR";
         log(`[${roomId}] FFmpeg 错误: ${t.slice(0, 200).replace(/\n/g, ' | ')}`);
       }
     });
 
-    // 周期性检查 m3u8 文件是否存在 + 有内容，确保前端不会太早开始播放
+    // 同时检查首片就绪和 HLS 持续推进；进程存活但分片停更时由服务端主动恢复。
     const readyCheck = setInterval(() => {
-      if (!TRANSCODES.has(roomId)) { clearInterval(readyCheck); return; }
+      if (TRANSCODES.get(roomId) !== state) { clearInterval(readyCheck); return; }
       try {
         const m3u8Path = path.join(roomDir, "index.m3u8");
+        const now = Date.now();
         if (fs.existsSync(m3u8Path)) {
           const stat = fs.statSync(m3u8Path);
-          if (stat.size > 0) {
-            // 检查 m3u8 内容是否至少有一个分片
-            const content = fs.readFileSync(m3u8Path, "utf8");
-            if (content.includes("#EXTINF") && state.status === "starting") {
-              state.status = "transcoding";
-              log(`[${roomId}] 转码就绪 (m3u8 ${stat.size}B, 首片已生成)`);
-            }
+          state.playlistExists = true;
+          state.playlistSize = stat.size;
+          const content = stat.size > 0 ? fs.readFileSync(m3u8Path, "utf8") : "";
+          const segments = content.split(/\r?\n/).filter(line => line && !line.startsWith("#") && /\.ts(?:\?|$)/i.test(line));
+          const lastSegment = segments.length ? segments[segments.length - 1] : "";
+          const progressed = stat.mtimeMs !== state.playlistMtimeMs || (lastSegment && lastSegment !== state.lastSegment);
+          if (progressed) {
+            state.playlistMtimeMs = stat.mtimeMs;
+            state.lastSegment = lastSegment;
+            state.lastProgressAt = now;
+            state.staleReason = "";
           }
+          if (content.includes("#EXTINF") && state.status === "starting") {
+            state.status = "transcoding";
+            log(`[${roomId}] 转码就绪 (m3u8 ${stat.size}B, 首片已生成)`);
+          }
+        } else {
+          state.playlistExists = false;
         }
-      } catch (e) {}
+        if (state.status === "starting" && now - state.startTime > HLS_START_TIMEOUT_MS) {
+          scheduleTranscodeRecovery(roomId, state, "HLS_START_TIMEOUT");
+        } else if (state.status === "transcoding" && now - state.lastProgressAt > HLS_STALL_TIMEOUT_MS) {
+          scheduleTranscodeRecovery(roomId, state, "HLS_STALLED");
+        }
+      } catch (error) {
+        state.lastCheckError = String(error.message || error).slice(0, 160);
+      }
     }, 1000);
     state.readyCheck = readyCheck;
 
     proc.on("close", code => {
       clearInterval(readyCheck);
-      if (state.status === "stopped") return;
-      const wasTranscoding = state.status === "transcoding";
-      state.status = code === 0 || state.status === "transcoding" ? "finished" : "error";
+      if (state.killTimer) clearTimeout(state.killTimer);
+      state.lastExitCode = code;
       state.proc = null;
-      log(`[${roomId}] FFmpeg 退出 (code=${code}, status=${state.status})`);
-      // 自动清理
-      setTimeout(() => {
-        const cur = TRANSCODES.get(roomId);
-        if (cur === state && !cur.proc) {
-          TRANSCODES.delete(roomId);
-          try { fs.rmSync(roomDir, { recursive: true, force: true }); } catch (e) {}
-        }
-      }, 120000);
-
-      // 自动重启：曾正常转码过但意外非手动停止 → 3秒后自动重启
-      if (wasTranscoding && state.status !== "stopped" && state.sourceUrl && !state._autoRestart) {
-        state._autoRestart = true;
-        log(`[${roomId}] 自动重启转码 → ${state.sourceUrl.slice(0, 80)}...`);
-        setTimeout(() => {
-          const cur = TRANSCODES.get(roomId);
-          if (cur && !cur.proc && cur.sourceUrl) {
-            try {
-              log(`[${roomId}] 触发重启...`);
-              startTranscode(roomId, cur.sourceUrl, cur.extraHeaders || [], cur.sourceRoomUrl || "");
-            } catch (e) {
-              log(`[${roomId}] 重启失败: ${e.message}`);
-            }
-          }
-        }, 3000);
-      }
+      if (state.status === "stopped") return;
+      const exitReason = state.staleReason || (code === 0 ? "FFMPEG_FINISHED" : `FFMPEG_EXIT_${code}`);
+      state.status = "error";
+      log(`[${roomId}] FFmpeg 退出 (code=${code}, reason=${exitReason})`);
+      if (!state.recoveryScheduled) scheduleTranscodeRecovery(roomId, state, exitReason);
     });
 
     proc.on("error", err => {
@@ -598,10 +731,11 @@ function stopTranscode(roomId) {
   if (state.readyCheck) clearInterval(state.readyCheck);
   if (state.killTimer) clearTimeout(state.killTimer);
   if (state.cleanupTimer) clearTimeout(state.cleanupTimer);
+  if (state.recoveryTimer) clearTimeout(state.recoveryTimer);
   // 先杀进程，不立即删 TRANSCODES（避免并发创建第二个进程）
   if (state.proc) {
     try { state.proc.kill("SIGTERM"); } catch (e) {}
-    state.killTimer = setTimeout(() => { try { if (state.proc && !state.proc.killed) state.proc.kill("SIGKILL"); } catch (e) {} }, 3000);
+    state.killTimer = setTimeout(() => { try { if (state.proc && state.proc.exitCode === null) state.proc.kill("SIGKILL"); } catch (e) {} }, 3000);
     // 等进程退出后再删除
     state.proc.on("close", () => {
       if (TRANSCODES.get(roomId) !== state) return;
@@ -620,13 +754,103 @@ function stopTranscode(roomId) {
   return { ok: true };
 }
 
+function sanitizeDiagnosticText(value) {
+  return String(value || "")
+    .replace(/https?:\/\/\S+/gi, "[url]")
+    .replace(/Cookie:\s*[^\r\n]+/gi, "Cookie: [redacted]")
+    .slice(0, 240);
+}
+
 function getTranscodeStatus(roomId) {
   const s = TRANSCODES.get(roomId);
   if (!s) return { ok: true, active: false, hasFFmpeg: !!FFMPEG_PATH };
+  const now = Date.now();
+  const procAlive = Boolean(s.proc && s.proc.exitCode === null);
+  const lastProgressAgoMs = Math.max(0, now - (s.lastProgressAt || s.startTime));
   return {
-    ok: true, active: true, status: s.status, url: s.url,
-    startTime: s.startTime, hlsUrl: `/streams/${roomId}/index.m3u8`,
-    errors: s.errors.slice(-3), hasFFmpeg: true
+    ok: true,
+    active: procAlive || ["starting", "transcoding", "recovering"].includes(s.status),
+    status: s.status,
+    startTime: s.startTime,
+    hlsUrl: `/streams/${roomId}/index.m3u8`,
+    errors: s.errors.slice(-3).map(sanitizeDiagnosticText),
+    hasFFmpeg: true,
+    procAlive,
+    pid: procAlive ? s.proc.pid : null,
+    playlistExists: Boolean(s.playlistExists),
+    playlistSize: Number(s.playlistSize) || 0,
+    playlistAgeMs: s.playlistMtimeMs ? Math.max(0, now - s.playlistMtimeMs) : null,
+    lastSegment: s.lastSegment || "",
+    lastProgressAgoMs,
+    restartCount: Number(s.restartCount) || 0,
+    generation: Number(s.generation) || 0,
+    staleReason: s.staleReason || "",
+    recovering: s.status === "recovering"
+  };
+}
+
+function getDiagnostics() {
+  const now = Date.now();
+  const transcodes = [];
+  let runningProcesses = 0;
+  let stalledTranscodes = 0;
+  TRANSCODES.forEach((state, roomId) => {
+    const item = getTranscodeStatus(roomId);
+    if (item.procAlive) runningProcesses += 1;
+    if (item.status === "recovering" || item.staleReason || item.lastProgressAgoMs > HLS_STALL_TIMEOUT_MS) stalledTranscodes += 1;
+    transcodes.push({ roomId, ...item });
+  });
+  const danmaku = [];
+  let danmakuSockets = 0;
+  DY_DANMAKU.forEach((entry, roomId) => {
+    const client = entry.client || {};
+    const sockets = entry.sockets?.size || 0;
+    danmakuSockets += sockets;
+    danmaku.push({
+      roomId,
+      status: client.status || (client.ws && client.ws.readyState === WebSocket.OPEN ? "connected" : "disconnected"),
+      internalRoomId: client._roomId ? String(client._roomId).slice(-8) : "",
+      socketSubscribers: sockets,
+      sseSubscribers: entry.subs?.size || 0,
+      lastMessageAgoMs: client.lastMessageAt ? Math.max(0, now - client.lastMessageAt) : null,
+      lastEventAgoMs: client.lastEventAt ? Math.max(0, now - client.lastEventAt) : null,
+      reconnectCount: Number(client.reconnectCount) || 0,
+      lastError: client.lastError || ""
+    });
+  });
+  const asrList = Array.from(ASR_SESSIONS);
+  return {
+    ok: stalledTranscodes === 0,
+    service: "livewatch-proxy",
+    version: "3.2",
+    uptimeSec: Math.floor(process.uptime()),
+    publicMode: PUBLIC_MODE,
+    dependencies: {
+      ffmpeg: Boolean(FFMPEG_PATH),
+      ytdlp: Boolean(YTDLP_PATH),
+      xunfeiConfigured: Boolean(SERVER_XUNFEI_CONFIG.appId && SERVER_XUNFEI_CONFIG.apiKey && SERVER_XUNFEI_CONFIG.apiSecret)
+    },
+    summary: {
+      transcodeEntries: TRANSCODES.size,
+      runningProcesses,
+      stalledTranscodes,
+      danmakuClients: DY_DANMAKU.size,
+      danmakuSockets,
+      asrClientSockets: ASR_SESSIONS.size,
+      asrUpstreamsReady: asrList.filter(session => session.ready).length
+    },
+    transcodes,
+    danmaku,
+    asr: {
+      clientSockets: ASR_SESSIONS.size,
+      upstreamsReady: asrList.filter(session => session.ready).length,
+      lastAudioAgoMs: (() => { const value = asrList.reduce((best, session) => session.lastAudioAt ? Math.min(best, now - session.lastAudioAt) : best, Infinity); return Number.isFinite(value) ? value : null; })(),
+      lastResultAgoMs: (() => { const value = asrList.reduce((best, session) => session.lastResultAt ? Math.min(best, now - session.lastResultAt) : best, Infinity); return Number.isFinite(value) ? value : null; })()
+    },
+    resolver: {
+      douyinCacheEntries: DOUYIN_RESOLVE_CACHE.size,
+      pendingJobs: DOUYIN_RESOLVE_PENDING.size
+    }
   };
 }
 
@@ -671,9 +895,10 @@ findYtdlp();
 if (!YTDLP_PATH) log("ℹ️ yt-dlp 未检测到 —— 抖音房间链接将无法自动解析为流地址。可从 https://github.com/yt-dlp/yt-dlp/releases 下载 yt-dlp.exe 到 tools/ 目录。");
 
 /* 用 yt-dlp 解析抖音/B站等直播源 */
-async function resolveStream(input) {
+async function resolveStream(input, options = {}) {
   const isDouyinRoom = /live\.douyin\.com\/[0-9]+/i.test(input);
   if (isDouyinRoom) {
+    if (options.force) DOUYIN_RESOLVE_CACHE.delete(input);
     const cached = DOUYIN_RESOLVE_CACHE.get(input);
     if (cached && cached.expiresAt > Date.now()) {
       log(`[resolve] 使用抖音解析缓存: ${input}`);
@@ -1061,17 +1286,27 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* --- 健康检查 --- */
-  if (p === "/api/health") return json(res, 200, {
-    ok: true,
-    service: "livewatch-proxy",
-    version: "3.1",
-    publicMode: PUBLIC_MODE,
-    rooms: ROOMS.size,
-    transcodes: TRANSCODES.size,
-    hasFFmpeg: !!FFMPEG_PATH,
-    hasYtdlp: !!YTDLP_PATH,
-    xunfeiConfigured: Boolean(SERVER_XUNFEI_CONFIG.appId && SERVER_XUNFEI_CONFIG.apiKey && SERVER_XUNFEI_CONFIG.apiSecret)
-  });
+  if (p === "/api/health") {
+    const diagnostics = getDiagnostics();
+    return json(res, 200, {
+      ok: true,
+      ready: diagnostics.dependencies.ffmpeg && diagnostics.summary.stalledTranscodes === 0,
+      service: "livewatch-proxy",
+      version: diagnostics.version,
+      publicMode: PUBLIC_MODE,
+      rooms: ROOMS.size,
+      transcodes: TRANSCODES.size,
+      runningProcesses: diagnostics.summary.runningProcesses,
+      stalledTranscodes: diagnostics.summary.stalledTranscodes,
+      danmakuClients: diagnostics.summary.danmakuClients,
+      asrSessions: diagnostics.summary.asrClientSockets,
+      hasFFmpeg: !!FFMPEG_PATH,
+      hasYtdlp: !!YTDLP_PATH,
+      xunfeiConfigured: diagnostics.dependencies.xunfeiConfigured
+    });
+  }
+
+  if (p === "/api/diagnostics") return json(res, 200, getDiagnostics());
 
   /* --- 当前在播的推荐房间（给「快速试用」用） --- */
   if (p === "/api/hot") {
@@ -1152,6 +1387,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const { url, roomId, sessionId, activatedAt } = JSON.parse(body);
         if (!url || !roomId) return json(res, 400, { ok: false, reason: "缺少 url 或 roomId" });
+        if (!validateRoomId(roomId)) return json(res, 400, { ok: false, reason: "roomId 格式不合法" });
         const publicRoom = validatePublicRoom(roomId, url);
         if (!publicRoom.ok) return json(res, 403, publicRoom);
         const safeRoomUrl = publicRoom.url;
@@ -1212,6 +1448,7 @@ const server = http.createServer(async (req, res) => {
     return req.on("end", () => {
       try {
         const { roomId } = JSON.parse(body);
+        if (!validateRoomId(roomId)) return json(res, 400, { ok: false, reason: "roomId 格式不合法" });
         if (PUBLIC_MODE) return json(res, 200, { ok: true, shared: true, message: "公网共享转码保持运行" });
         return json(res, 200, stopTranscode(roomId));
       } catch (e) { return json(res, 400, { ok: false, reason: e.message }); }
@@ -1221,12 +1458,13 @@ const server = http.createServer(async (req, res) => {
   if (p === "/api/transcode/status") {
     const roomId = u.searchParams.get("roomId") || "";
     if (!roomId) return json(res, 400, { ok: false, reason: "缺少 roomId" });
+    if (!validateRoomId(roomId)) return json(res, 400, { ok: false, reason: "roomId 格式不合法" });
     return json(res, 200, getTranscodeStatus(roomId));
   }
 
   if (p === "/api/transcode/list") {
     const list = [];
-    TRANSCODES.forEach((v, k) => list.push({ roomId: k, status: v.status, url: v.url, startTime: v.startTime }));
+    TRANSCODES.forEach((v, k) => list.push({ roomId: k, ...getTranscodeStatus(k) }));
     return json(res, 200, { ok: true, list, hasFFmpeg: !!FFMPEG_PATH, hasYtdlp: !!YTDLP_PATH });
   }
 
@@ -1329,6 +1567,8 @@ dyWss.on("connection", (ws, req) => {
 const wss = new WebSocket.Server({ noServer: true });
 wss.on("connection", (clientWS, req) => {
   console.log("[xunfei-ws] 前端已连接");
+  const session = { ready: false, connectedAt: Date.now(), lastAudioAt: 0, lastResultAt: 0 };
+  ASR_SESSIONS.add(session);
   let xf = null, configReceived = false;
 
   clientWS.on("error", (err) => {
@@ -1365,9 +1605,11 @@ wss.on("connection", (clientWS, req) => {
           return;
         }
         xf.onReady = () => {
+          session.ready = true;
           if (clientWS.readyState === WebSocket.OPEN) clientWS.send(JSON.stringify({ type: "ready" }));
         };
         xf.onResult = (text, isFinal, meta = {}) => {
+          session.lastResultAt = Date.now();
           if (clientWS.readyState === WebSocket.OPEN) clientWS.send(JSON.stringify({
             type: "result", text, isFinal,
             segmentId: meta.segmentId ?? null,
@@ -1378,11 +1620,17 @@ wss.on("connection", (clientWS, req) => {
           if (clientWS.readyState === WebSocket.OPEN) clientWS.send(JSON.stringify({ type: "error", message: err.message }));
         };
         xf.onClose = (code, reason, hint) => {
-          if (clientWS.readyState === WebSocket.OPEN) clientWS.send(JSON.stringify({
-            type: "closed",
-            code: Number(code) || 0,
-            message: hint || reason || "讯飞上游已断开"
-          }));
+          session.ready = false;
+          if (clientWS.readyState === WebSocket.OPEN) {
+            clientWS.send(JSON.stringify({
+              type: "closed",
+              code: Number(code) || 0,
+              message: hint || reason || "讯飞上游已断开"
+            }));
+            setTimeout(() => {
+              try { if (clientWS.readyState === WebSocket.OPEN) clientWS.close(1012, "xunfei upstream closed"); } catch (e) {}
+            }, 100);
+          }
         };
         xf.connect();
         return;
@@ -1391,15 +1639,17 @@ wss.on("connection", (clientWS, req) => {
       // 堆积到 1280 字节（40ms @ 16kHz）再发，匹配讯飞推荐间隔
       if (xf && (Buffer.isBuffer(data) || data instanceof ArrayBuffer || data instanceof Uint8Array)) {
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+        session.lastAudioAt = Date.now();
         if (!xf._buf) xf._buf = Buffer.alloc(0);
         xf._buf = Buffer.concat([xf._buf, Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength)]);
-        // 每攒够 6400 字节（200ms）发一次，平衡延迟和效率
-        if (xf._buf.length >= 6400) {
-          xf.sendAudio(xf._buf.buffer.slice(xf._buf.byteOffset, xf._buf.byteOffset + xf._buf.length));
+        // 固定按 6400 字节（约 200ms）切片，保留不足一帧的尾部，避免不规则大包和音频积压。
+        while (xf._buf.length >= 6400) {
+          const frame = xf._buf.subarray(0, 6400);
+          xf._buf = xf._buf.subarray(6400);
+          xf.sendAudio(frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength));
           if (xf._dbgCount === undefined) xf._dbgCount = 0;
           xf._dbgCount++;
-          if (xf._dbgCount % 20 === 0) console.log(`[xunfei-ws] 已转发 ${xf._dbgCount} 批音频，累积 ${Math.round(xf._buf.length*20/1024)} KB`);
-          xf._buf = Buffer.alloc(0);
+          if (xf._dbgCount % 20 === 0) console.log(`[xunfei-ws] 已转发 ${xf._dbgCount} 批音频`);
         }
       }
     } catch (e) {
@@ -1409,6 +1659,8 @@ wss.on("connection", (clientWS, req) => {
 
   clientWS.on("close", () => {
     console.log("[xunfei-ws] 前端断开");
+    session.ready = false;
+    ASR_SESSIONS.delete(session);
     if (xf) { xf.end(); setTimeout(() => xf.close(), 500); }
   });
 });
