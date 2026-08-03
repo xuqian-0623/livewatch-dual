@@ -33,16 +33,17 @@ class XunfeiRTASR {
     this.onReady = null;    // () => {}，讯飞上游握手完成
     this.onResult = null;   // (text, isFinal) => {}
     this.onError = null;    // (err) => {}
-    this.onClose = null;    // () => {}
+    this.onClose = null;    // (code, reason, hint) => {}
   }
 
   connect() {
-    // 1. 生成 UTC+8 本地时间字符串（不是 UTC 时间，Xunfei 要求本地时间标记 +0800）
-    const d = new Date();
+    // 1. 生成固定 UTC+8 时间。云服务器通常运行在 UTC，不能用本机 getHours() 后直接标记 +0800，
+    // 否则签名时间会相差 8 小时并被讯飞立即断开（35014）。
+    const chinaTime = new Date(Date.now() + 8 * 60 * 60 * 1000);
     const pad = (n) => String(n).padStart(2, "0");
     const utc =
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-      `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}+0800`;
+      `${chinaTime.getUTCFullYear()}-${pad(chinaTime.getUTCMonth() + 1)}-${pad(chinaTime.getUTCDate())}` +
+      `T${pad(chinaTime.getUTCHours())}:${pad(chinaTime.getUTCMinutes())}:${pad(chinaTime.getUTCSeconds())}+0800`;
 
     // 2. 构造请求参数（不含 signature）
     const params = {
@@ -133,9 +134,10 @@ class XunfeiRTASR {
       // 讯飞自定义 HTTP 状态码说明
       const codeMap = { 35001: "鉴权失败", 35002: "用量不足", 35004: "appId 不存在", 35005: "appId 已禁用",
         35006: "并发满", 35014: "时间戳偏差过大", 35022: "用量超限", 35030: "签名重复/过期" };
-      console.warn(`⚠️  讯飞 WS 关闭: 代码=${code} ${codeMap[code]||""} ${reasonStr}`);
+      const hint = codeMap[code] || reasonStr || "上游连接已关闭";
+      console.warn(`⚠️  讯飞 WS 关闭: 代码=${code} ${hint} ${reasonStr}`);
       this._connected = false;
-      if (this.onClose) this.onClose();
+      if (this.onClose) this.onClose(code, reasonStr, hint);
     });
 
     this.ws.on("error", (e) => {

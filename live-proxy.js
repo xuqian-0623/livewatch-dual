@@ -487,14 +487,15 @@ function startTranscode(roomId, url, extraHeaders, sourceRoomUrl) {
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
     "-i", url,
-    // 重编码为 H264（源流可能为 HEVC），用 veryfast 避免 ultrafast 导致的解码崩溃
-    "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
-    "-crf", "26", "-g", "60", "-keyint_min", "60",
+    // 免费公网实例采用轻量转码：720p/20fps/单声道，优先保证双路持续播放；本地保留高清参数。
+    "-c:v", "libx264", "-preset", PUBLIC_MODE ? "ultrafast" : "veryfast", "-tune", "zerolatency",
+    "-crf", PUBLIC_MODE ? "30" : "26", "-g", PUBLIC_MODE ? "40" : "60", "-keyint_min", PUBLIC_MODE ? "40" : "60",
     "-sc_threshold", "0",
-    "-maxrate", "3000k", "-bufsize", "6000k",
-    "-vf", "scale=ceil(iw/2)*2:ceil(ih/2)*2,fps=25",
-    "-c:a", "aac", "-b:a", "96k", "-ar", "44100", "-ac", "2",
-    "-f", "hls", "-hls_time", "4", "-hls_list_size", "10",
+    "-maxrate", PUBLIC_MODE ? "1200k" : "3000k", "-bufsize", PUBLIC_MODE ? "2400k" : "6000k",
+    "-vf", PUBLIC_MODE ? "scale='min(720,iw)':-2,fps=20" : "scale=ceil(iw/2)*2:ceil(ih/2)*2,fps=25",
+    "-c:a", "aac", "-b:a", PUBLIC_MODE ? "64k" : "96k", "-ar", "44100", "-ac", PUBLIC_MODE ? "1" : "2",
+    "-threads", PUBLIC_MODE ? "1" : "0",
+    "-f", "hls", "-hls_time", PUBLIC_MODE ? "3" : "4", "-hls_list_size", PUBLIC_MODE ? "6" : "10",
     "-hls_flags", "omit_endlist+independent_segments+program_date_time",
     "-hls_segment_type", "mpegts",
     hlsPath
@@ -879,7 +880,16 @@ async function resolveDouyinWebcast(url) {
       const room = enterData?.data?.data?.[0] || enterData?.data?.room || enterData?.data?.[0];
       const stream = room?.stream_url || enterData?.data?.web_stream_url;
       const flvMap = stream?.flv_pull_url || {};
-      const streamCandidates = [
+      // 公网免费实例优先低码率源，降低双路 FFmpeg 的 CPU 和内存压力；本地仍优先高清。
+      const streamCandidates = (PUBLIC_MODE ? [
+        flvMap.SD1,
+        flvMap.SD2,
+        flvMap.HD1,
+        stream?.rtmp_pull_url,
+        flvMap.FULL_HD1,
+        flvMap.ORIGION,
+        ...Object.values(flvMap)
+      ] : [
         flvMap.HD1,
         flvMap.SD2,
         flvMap.SD1,
@@ -887,7 +897,7 @@ async function resolveDouyinWebcast(url) {
         flvMap.FULL_HD1,
         flvMap.ORIGION,
         ...Object.values(flvMap)
-      ].filter(Boolean);
+      ]).filter(Boolean);
       const preferredFlv = streamCandidates.find(candidate => /_(?:hd|sd|md|ld)\.flv(?:\?|$)/i.test(candidate)) || streamCandidates[0];
       if (Number(room?.status) === 2 && preferredFlv) {
         const uploader = room?.owner?.nickname || "";
@@ -1367,8 +1377,12 @@ wss.on("connection", (clientWS, req) => {
         xf.onError = (err) => {
           if (clientWS.readyState === WebSocket.OPEN) clientWS.send(JSON.stringify({ type: "error", message: err.message }));
         };
-        xf.onClose = () => {
-          if (clientWS.readyState === WebSocket.OPEN) clientWS.send(JSON.stringify({ type: "closed" }));
+        xf.onClose = (code, reason, hint) => {
+          if (clientWS.readyState === WebSocket.OPEN) clientWS.send(JSON.stringify({
+            type: "closed",
+            code: Number(code) || 0,
+            message: hint || reason || "讯飞上游已断开"
+          }));
         };
         xf.connect();
         return;

@@ -608,7 +608,8 @@
           } else if (message.type === "error") {
             this.q('[data-role="asr-state"]').textContent = "ASR 错误：" + String(message.message || "未知错误").slice(0, 28);
           } else if (message.type === "closed") {
-            this.q('[data-role="asr-state"]').textContent = "ASR 上游已断开";
+            const detail = String(message.message || (message.code ? "代码 " + message.code : "上游已断开"));
+            this.q('[data-role="asr-state"]').textContent = "ASR 断开：" + detail.slice(0, 24);
           }
         };
         ws.onclose = () => {
