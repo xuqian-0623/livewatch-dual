@@ -51,7 +51,7 @@ docker run --rm -p 8787:8787 \
 - `XUNFEI_API_KEY`
 - `XUNFEI_API_SECRET`
 
-不要把真实凭证写进 Git 仓库。Render 免费实例可能休眠，且双路实时转码对 CPU/内存要求较高，建议使用至少 Starter 规格。
+不要把真实凭证写进 Git 仓库。`render.yaml` 默认使用 Free 规格，部署时不要求绑定付费实例；但免费实例会休眠，而且双路实时转码可能因 CPU/内存不足而卡顿或被重启。需要稳定运行时再手动升级规格。
 
 ## 安全说明
 
