@@ -204,6 +204,7 @@
         runtime.setStatus("ok", "视频已打通");
         runtime.setStreamLabel(runtime.playerType === "hls" ? "HLS FIRST FRAME" : "FLV FIRST FRAME");
         runtime.hideVideoState();
+        runtime.hidePlayGate();
         if (runtime.playerType === "hls") runtime.startPlaybackWatch(runtime.epoch);
         runtime.startASR();
       });
@@ -490,7 +491,8 @@
 
     tryPlay(token) {
       if (token !== this.epoch || this.manualStopped) return;
-      this.video.muted = !this.audioContext;
+      // 冷启动解析可能耗时较长；始终先静音播放，避免用户手势过期后被自动播放策略拦截。
+      this.video.muted = true;
       this.setStatus("pending", "等待首帧");
       this.setVideoState("播放请求已发出", "等待浏览器解码并渲染实际视频画面");
       this.video.play().then(() => {
