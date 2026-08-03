@@ -449,9 +449,9 @@ function findFFmpeg() {
 // 房间转码状态: roomId → { proc, url, status, startTime, errors, output }
 const TRANSCODES = new Map();
 
-function startTranscode(roomId, url, extraHeaders) {
+function startTranscode(roomId, url, extraHeaders, sourceRoomUrl) {
   const existing = TRANSCODES.get(roomId);
-  if (PUBLIC_MODE && existing && existing.url === url && ["starting", "transcoding"].includes(existing.status)) {
+  if (PUBLIC_MODE && existing && existing.sourceRoomUrl === sourceRoomUrl && ["starting", "transcoding"].includes(existing.status)) {
     return { ok: true, roomId, hlsUrl: `/streams/${roomId}/index.m3u8`, shared: true };
   }
   stopTranscode(roomId);
@@ -510,7 +510,7 @@ function startTranscode(roomId, url, extraHeaders) {
 
   try {
     const proc = spawn(FFMPEG_PATH, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-    const state = { proc, url, sourceUrl: url, extraHeaders, status: "starting", startTime: Date.now(), errors: [], output: "" };
+    const state = { proc, url, sourceUrl: url, sourceRoomUrl: sourceRoomUrl || "", extraHeaders, status: "starting", startTime: Date.now(), errors: [], output: "" };
     TRANSCODES.set(roomId, state);
 
     proc.stderr.on("data", chunk => {
@@ -569,7 +569,7 @@ function startTranscode(roomId, url, extraHeaders) {
           if (cur && !cur.proc && cur.sourceUrl) {
             try {
               log(`[${roomId}] 触发重启...`);
-              startTranscode(roomId, cur.sourceUrl, cur.extraHeaders || []);
+              startTranscode(roomId, cur.sourceUrl, cur.extraHeaders || [], cur.sourceRoomUrl || "");
             } catch (e) {
               log(`[${roomId}] 重启失败: ${e.message}`);
             }
@@ -1173,7 +1173,7 @@ const server = http.createServer(async (req, res) => {
           log(`[${roomId}] FLV 源流 → 强制本地转码，避免 CDN CORS 拦截`);
         }
 
-        const r = startTranscode(roomId, streamUrl, extraHeaders);
+        const r = startTranscode(roomId, streamUrl, extraHeaders, safeRoomUrl);
         if (r.ok && resolved) {
           r.resolvedFrom = safeRoomUrl;
           r.title = resolved.title;
