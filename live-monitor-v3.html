@@ -200,7 +200,8 @@
       });
       this.video.addEventListener("playing", function () {
         runtime.hasFirstFrame = true;
-        if (!runtime.audioContext) runtime.video.muted = true;
+        const audioRunning = runtime.audioContext && runtime.audioContext.state === "running";
+        runtime.video.muted = !audioRunning;
         runtime.setStatus("ok", "视频已打通");
         runtime.setStreamLabel(runtime.playerType === "hls" ? "HLS FIRST FRAME" : "FLV FIRST FRAME");
         runtime.hideVideoState();
@@ -234,6 +235,7 @@
         if (this.audioContext && this.audioContext.state === "suspended") await this.audioContext.resume();
         if (!this.audioContext || this.audioContext.state !== "running") throw new Error("音频上下文未启动");
         this.audioUnlocked = true;
+        this.video.muted = false;
         try {
           await this.video.play();
           this.hidePlayGate();
@@ -755,6 +757,7 @@
         const resume = this.audioContext.state === "suspended" ? this.audioContext.resume() : Promise.resolve();
         resume.then(() => {
           this.audioUnlocked = this.audioContext.state === "running";
+          if (this.audioUnlocked && this.hasFirstFrame) this.video.muted = false;
           this.q('[data-role="asr-state"]').textContent = this.asrReady ? "ASR 已连接 · 等待主播发声" : "音频已解锁 · 等待 ASR";
         }).catch(error => {
           this.audioUnlocked = false;
