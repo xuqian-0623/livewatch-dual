@@ -602,13 +602,13 @@ function startTranscode(roomId, url, extraHeaders, sourceRoomUrl) {
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
     "-i", url,
-    // 免费公网实例采用轻量转码：720p/20fps/单声道，优先保证双路持续播放；本地保留高清参数。
+    // 免费公网实例采用低负载转码：固定 360x640/15fps/单声道，优先保证双路连续监控和 ASR；本地保留高清参数。
     "-c:v", "libx264", "-preset", PUBLIC_MODE ? "ultrafast" : "veryfast", "-tune", "zerolatency",
-    "-crf", PUBLIC_MODE ? "30" : "26", "-g", PUBLIC_MODE ? "40" : "60", "-keyint_min", PUBLIC_MODE ? "40" : "60",
+    "-crf", PUBLIC_MODE ? "32" : "26", "-g", PUBLIC_MODE ? "45" : "60", "-keyint_min", PUBLIC_MODE ? "45" : "60",
     "-sc_threshold", "0",
-    "-maxrate", PUBLIC_MODE ? "1200k" : "3000k", "-bufsize", PUBLIC_MODE ? "2400k" : "6000k",
-    "-vf", PUBLIC_MODE ? "scale='min(720,iw)':-2,fps=20" : "scale=ceil(iw/2)*2:ceil(ih/2)*2,fps=25",
-    "-c:a", "aac", "-b:a", PUBLIC_MODE ? "64k" : "96k", "-ar", "44100", "-ac", PUBLIC_MODE ? "1" : "2",
+    "-maxrate", PUBLIC_MODE ? "700k" : "3000k", "-bufsize", PUBLIC_MODE ? "1400k" : "6000k",
+    "-vf", PUBLIC_MODE ? "scale=360:640:force_original_aspect_ratio=decrease,pad=360:640:(ow-iw)/2:(oh-ih)/2,fps=15" : "scale=ceil(iw/2)*2:ceil(ih/2)*2,fps=25",
+    "-c:a", "aac", "-b:a", PUBLIC_MODE ? "48k" : "96k", "-ar", "44100", "-ac", PUBLIC_MODE ? "1" : "2",
     "-threads", PUBLIC_MODE ? "1" : "0",
     "-f", "hls", "-hls_time", PUBLIC_MODE ? "3" : "4", "-hls_list_size", PUBLIC_MODE ? "6" : "10",
     "-hls_flags", "omit_endlist+independent_segments+program_date_time",
@@ -822,7 +822,7 @@ function getDiagnostics() {
   return {
     ok: stalledTranscodes === 0,
     service: "livewatch-proxy",
-    version: "3.2",
+    version: "3.3",
     uptimeSec: Math.floor(process.uptime()),
     publicMode: PUBLIC_MODE,
     dependencies: {
