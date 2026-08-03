@@ -20,6 +20,7 @@
 <header class="topbar">
   <div class="brand">双路实时监控 <small>LIVEWATCH DUAL</small></div>
   <button class="top-action primary" type="button" data-action="connect-all">同时连接</button>
+  <button class="top-action" type="button" data-action="enable-asr">启用双路转写</button>
   <div class="top-meta">
     <div class="chip" data-role="proxy-status"><span class="dot"></span><span class="chip-label">代理检测中</span></div>
     <time class="clock" data-role="clock">--:--:--</time>
@@ -137,6 +138,10 @@
       this.streamRetryTimer = null;
       this.danmakuRetryTimer = null;
       this.xfRetryTimer = null;
+      this.playbackWatchTimer = null;
+      this.lastVideoTime = 0;
+      this.stagnantTicks = 0;
+      this.audioUnlocked = false;
       this.danmaku = [];
       this.transcripts = [];
       this.risks = [];
@@ -166,7 +171,11 @@
 
     bindEvents() {
       const runtime = this;
-      this.q('[data-action="connect"]').addEventListener("click", function () { runtime.start(true); });
+      this.q('[data-action="connect"]').addEventListener("click", function () {
+        runtime.audioUnlocked = true;
+        runtime.startAudioGraph();
+        runtime.start(true);
+      });
       this.q('[data-action="stop"]').addEventListener("click", function () { runtime.stop(); });
       this.q('[data-role="url-input"]').addEventListener("change", function (event) {
         runtime.url = event.target.value.trim();
@@ -178,8 +187,7 @@
         runtime.setView(tab.dataset.view);
       });
       this.q('[data-action="play"]').addEventListener("click", function () {
-        runtime.video.muted = !runtime.audioContext;
-        runtime.video.play().then(function () { runtime.hidePlayGate(); }).catch(function (error) { runtime.showError("仍无法自动播放：" + error.message); });
+        runtime.unlockAudioAndPlay();
       });
       this.video.addEventListener("loadstart", function () {
         if (!runtime.manualStopped && !runtime.hasFirstFrame) runtime.setVideoState("视频正在加载", "已创建播放器，等待媒体数据");
@@ -196,7 +204,7 @@
         runtime.setStatus("ok", "视频已打通");
         runtime.setStreamLabel(runtime.playerType === "hls" ? "HLS FIRST FRAME" : "FLV FIRST FRAME");
         runtime.hideVideoState();
-        runtime.hidePlayGate();
+        if (runtime.playerType === "hls") runtime.startPlaybackWatch(runtime.epoch);
         runtime.startASR();
       });
       this.video.addEventListener("waiting", function () {
@@ -216,6 +224,58 @@
       this.video.addEventListener("pause", function () {
         if (!runtime.manualStopped && runtime.video.readyState >= 2) runtime.showPlayGate();
       });
+    }
+
+    async unlockAudioAndPlay() {
+      this.audioUnlocked = true;
+      try {
+        this.startAudioGraph();
+        if (this.audioContext && this.audioContext.state === "suspended") await this.audioContext.resume();
+        if (!this.audioContext || this.audioContext.state !== "running") throw new Error("音频上下文未启动");
+        this.audioUnlocked = true;
+        try {
+          await this.video.play();
+          this.hidePlayGate();
+        } catch (playError) {
+          this.showPlayGate("点击开始播放");
+        }
+        this.q('[data-role="asr-state"]').textContent = this.asrReady ? "ASR 已解锁 · 等待音频" : "音频已解锁 · 等待 ASR";
+        return true;
+      } catch (error) {
+        this.audioUnlocked = false;
+        this.showPlayGate("点击启用双路转写");
+        this.q('[data-role="asr-state"]').textContent = "需点击启用音频";
+        return false;
+      }
+    }
+
+    startPlaybackWatch(token) {
+      clearInterval(this.playbackWatchTimer);
+      this.lastVideoTime = this.video.currentTime || 0;
+      this.stagnantTicks = 0;
+      this.playbackWatchTimer = setInterval(() => {
+        if (token !== this.epoch || this.manualStopped || this.playerType !== "hls") return;
+        const current = Number(this.video.currentTime) || 0;
+        if (!this.video.paused && this.video.readyState >= 2 && Math.abs(current - this.lastVideoTime) < 0.08) this.stagnantTicks += 1;
+        else this.stagnantTicks = 0;
+        this.lastVideoTime = current;
+
+        let liveEdge = 0;
+        if (this.player && Number.isFinite(this.player.liveSyncPosition)) liveEdge = this.player.liveSyncPosition;
+        const latency = liveEdge > current ? liveEdge - current : 0;
+        if (latency > 10 || this.stagnantTicks >= 3) {
+          try {
+            const target = liveEdge > 0 ? Math.max(0, liveEdge - 1.5) : current + 0.5;
+            this.video.currentTime = target;
+            if (this.player && this.player.startLoad) this.player.startLoad(-1);
+            this.video.play().catch(() => {
+              if (token === this.epoch && this.video.paused) this.showPlayGate();
+            });
+            this.setStatus("pending", "追赶直播中");
+            this.stagnantTicks = 0;
+          } catch (error) {}
+        }
+      }, 3000);
     }
 
     async start(resetRetries) {
@@ -304,6 +364,7 @@
       this.clearTimers();
       this.closeDanmaku();
       this.closeASR();
+      if (this.manualStopped) this.stopAudioGraph();
       this.destroyPlayer();
       this.hasFirstFrame = false;
       this.video.pause();
@@ -326,10 +387,13 @@
       clearTimeout(this.streamRetryTimer);
       clearTimeout(this.danmakuRetryTimer);
       clearTimeout(this.xfRetryTimer);
+      clearInterval(this.playbackWatchTimer);
       this.pollTimer = null;
       this.streamRetryTimer = null;
       this.danmakuRetryTimer = null;
       this.xfRetryTimer = null;
+      this.playbackWatchTimer = null;
+      this.stagnantTicks = 0;
     }
 
     destroyPlayer() {
@@ -629,7 +693,7 @@
         };
         ws.onclose = () => {
           if (this.xfWS === ws) this.xfWS = null;
-          this.stopAudioGraph();
+          this.asrReady = false;
           if (token === this.epoch && !this.manualStopped) this.scheduleASRReconnect();
         };
         ws.onerror = function () {};
@@ -649,7 +713,6 @@
     }
 
     startAudioGraph() {
-      if (!this.asrReady) return;
       try {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
         if (!AudioContextClass) throw new Error("浏览器不支持 Web Audio");
@@ -689,9 +752,12 @@
         }
         const resume = this.audioContext.state === "suspended" ? this.audioContext.resume() : Promise.resolve();
         resume.then(() => {
-          this.q('[data-role="asr-state"]').textContent = "ASR 已连接 · 等待主播发声";
+          this.audioUnlocked = this.audioContext.state === "running";
+          this.q('[data-role="asr-state"]').textContent = this.asrReady ? "ASR 已连接 · 等待主播发声" : "音频已解锁 · 等待 ASR";
         }).catch(error => {
-          this.q('[data-role="asr-state"]').textContent = "音频需点击播放：" + error.message;
+          this.audioUnlocked = false;
+          this.q('[data-role="asr-state"]').textContent = "需点击启用双路转写";
+          this.showPlayGate("点击启用双路转写");
         });
       } catch (error) {
         this.q('[data-role="asr-state"]').textContent = "音频采集失败：" + String(error.message || error).slice(0, 28);
@@ -750,7 +816,6 @@
       this.audioPackets = 0;
       this.audioBytes = 0;
       this.audioSignal = 0;
-      this.stopAudioGraph();
       const ws = this.xfWS;
       this.xfWS = null;
       if (ws) {
@@ -857,8 +922,11 @@
       this.q('[data-role="stream-label"]').textContent = text;
     }
 
-    showPlayGate() {
-      this.q('[data-role="play-gate"]').hidden = false;
+    showPlayGate(label) {
+      const gate = this.q('[data-role="play-gate"]');
+      const button = gate.querySelector('[data-action="play"]');
+      if (button && label) button.textContent = label;
+      gate.hidden = false;
     }
 
     hidePlayGate() {
@@ -969,8 +1037,22 @@
   }
 
   document.querySelector('[data-action="connect-all"]').addEventListener("click", function () {
+    runtimes.forEach(function (runtime) {
+      runtime.audioUnlocked = true;
+      runtime.startAudioGraph();
+    });
     runtimes[0].start(true);
     setTimeout(function () { runtimes[1].start(true); }, 1500);
+  });
+
+  document.querySelector('[data-action="enable-asr"]').addEventListener("click", async function (event) {
+    const button = event.currentTarget;
+    button.disabled = true;
+    const results = await Promise.all(runtimes.map(function (runtime) { return runtime.unlockAudioAndPlay(); }));
+    const allUnlocked = results.every(Boolean);
+    button.textContent = allUnlocked ? "双路转写已启用" : "再次启用双路转写";
+    button.classList.toggle("primary", allUnlocked);
+    button.disabled = allUnlocked;
   });
 
   const modal = document.querySelector('[data-role="settings-modal"]');
