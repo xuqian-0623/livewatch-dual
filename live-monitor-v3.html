@@ -1055,9 +1055,9 @@
     button.disabled = true;
     const results = await Promise.all(runtimes.map(function (runtime) { return runtime.unlockAudioAndPlay(); }));
     const allUnlocked = results.every(Boolean);
-    button.textContent = allUnlocked ? "双路转写已启用" : "再次启用双路转写";
+    button.textContent = allUnlocked ? "双路转写已启用（可重试）" : "再次启用双路转写";
     button.classList.toggle("primary", allUnlocked);
-    button.disabled = allUnlocked;
+    button.disabled = false;
   });
 
   const modal = document.querySelector('[data-role="settings-modal"]');
