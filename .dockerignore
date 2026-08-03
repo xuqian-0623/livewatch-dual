@@ -1,0 +1,14 @@
+.git
+.gitignore
+.workbuddy
+node_modules
+streams
+tools
+test_xf*.js
+.env*
+!.env.example
+*.log
+启动看板.*
+注册开机自启.ps1
+live-monitor.html
+TECHNICAL_DESIGN.md

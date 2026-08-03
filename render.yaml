@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: livewatch-dual
+    runtime: docker
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: PUBLIC_MODE
+        value: "true"
+      - key: NODE_ENV
+        value: production
+      - key: XUNFEI_APP_ID
+        sync: false
+      - key: XUNFEI_API_KEY
+        sync: false
+      - key: XUNFEI_API_SECRET
+        sync: false

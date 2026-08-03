@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
+<title>LiveWatch Dual</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#070a10;--surface:#0e141e;--surface2:#131c29;--line:#253044;--text:#eef3fb;--muted:#8391a8;--purple:#8b7cf6;--cyan:#28d7d0;--red:#ff5c6c;--yellow:#f4c95d;--green:#52d273;--radius:8px}
+*{box-sizing:border-box}[hidden]{display:none!important}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:13px/1.45 "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}body{height:100vh;display:flex;flex-direction:column;overflow:hidden}button,input{font:inherit;color:inherit}button{cursor:pointer}::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#334057;border-radius:5px}.topbar{height:54px;flex:none;display:flex;align-items:center;gap:18px;padding:0 18px;border-bottom:1px solid var(--line);background:#090e16}.brand{font-size:16px;font-weight:800;white-space:nowrap}.brand small{color:var(--purple);font-size:10px;letter-spacing:1.5px;margin-left:7px}.top-meta{display:flex;align-items:center;gap:10px;margin-left:auto}.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid var(--line);border-radius:6px;color:var(--muted);background:var(--surface)}.dot{width:7px;height:7px;border-radius:50%;background:var(--yellow)}.chip.ok .dot,.status.ok .dot{background:var(--cyan);box-shadow:0 0 8px rgba(40,215,208,.6)}.chip.bad .dot,.status.bad .dot{background:var(--red)}.clock{font-variant-numeric:tabular-nums;color:#b8c3d5;min-width:72px}.top-action,.room-action,.tab{border:1px solid var(--line);background:var(--surface2);border-radius:6px;padding:6px 10px}.top-action.primary,.room-action.primary{background:#6658dd;border-color:#8173ed}.top-action:hover,.room-action:hover,.tab:hover{border-color:#65728a}.workspace{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;padding:10px}.room{min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}.room-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line)}.room-number{width:29px;height:29px;display:grid;place-items:center;border-radius:6px;background:rgba(139,124,246,.16);color:#c9c1ff;font-weight:900}.identity{min-width:0}.identity strong,.identity span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.identity strong{font-size:13px}.identity span{color:var(--muted);font-size:11px}.status{display:flex;align-items:center;gap:6px;color:var(--yellow);font-size:11px;font-weight:700}.status.ok{color:var(--cyan)}.status.bad{color:var(--red)}.urlbar{display:flex;gap:7px;padding:8px 10px;border-bottom:1px solid var(--line);background:#0a1019}.urlbar input{min-width:0;flex:1;border:1px solid var(--line);border-radius:6px;background:#070b12;padding:7px 9px;color:#c9d3e3}.urlbar input:focus{border-color:var(--purple)}.room-action{padding:6px 9px}.room-action.stop{color:#ff9aa5}.video-wrap{position:relative;width:100%;height:55%;min-height:360px;max-height:640px;background:#020305;overflow:hidden;flex:none}.video-wrap video{display:block;width:100%;height:100%;object-fit:contain;background:#000}.video-state{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:20px;background:radial-gradient(circle at 50% 20%,#182035,#05070b 68%);color:var(--muted)}.video-state[hidden]{display:none}.video-state strong{display:block;color:var(--text);font-size:14px;margin-bottom:5px}.play-gate{position:absolute;inset:0;display:grid;place-items:center;background:rgba(2,3,5,.7);z-index:3}.play-gate[hidden]{display:none}.play-gate button{border:1px solid #a99fff;border-radius:6px;background:#6658dd;padding:10px 16px;font-weight:800}.stream-label{position:absolute;left:9px;top:9px;padding:4px 7px;border-radius:5px;background:rgba(9,14,22,.84);border:1px solid rgba(255,255,255,.13);color:var(--cyan);font-size:10px}.kpis{display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:#0a1019}.kpi{padding:7px 5px;text-align:center;border-right:1px solid var(--line)}.kpi:last-child{border-right:0}.kpi b{display:block;font-size:14px;line-height:1.2}.kpi span{font-size:9px;color:var(--muted)}.kpi.risk b{color:var(--red)}.data-area{flex:1;min-height:120px;display:flex;flex-direction:column}.tabs{height:38px;flex:none;display:flex;align-items:center;gap:5px;padding:5px 8px;border-bottom:1px solid var(--line)}.tab{padding:4px 9px;color:var(--muted);font-size:11px}.tab.active{color:#d8d3ff;background:rgba(139,124,246,.15);border-color:#6658dd}.tab-count{margin-left:3px;color:#7e8ba1}.panels{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr}.panels[data-view="danmaku"],.panels[data-view="transcript"],.panels[data-view="risk"]{grid-template-columns:1fr}.panels[data-view="danmaku"] .panel:not([data-panel="danmaku"]),.panels[data-view="transcript"] .panel:not([data-panel="transcript"]),.panels[data-view="risk"] .panel:not([data-panel="risk"]),.panels[data-view="dual"] .panel[data-panel="risk"]{display:none}.panel{min-width:0;min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--line)}.panel:last-child{border-right:0}.panel-title{flex:none;display:flex;justify-content:space-between;padding:4px 8px;color:#b4c0d2;font-size:10px;font-weight:800;letter-spacing:.7px;background:#0b111b}.list{flex:1;min-height:0;overflow:auto;padding:3px 6px}.empty{height:100%;display:grid;place-items:center;color:#59677c;text-align:center}.item{padding:3px 5px;border-bottom:1px solid rgba(37,48,68,.58);font-size:12px;word-break:break-word}.item:last-child{border-bottom:0}.time{color:#5f6e84;font-size:9px;margin-right:6px;font-variant-numeric:tabular-nums}.user{color:#71dcd7;font-weight:700;margin-right:5px}.item.active{border-left:2px solid var(--purple);background:rgba(139,124,246,.08)}.item.final{border-left:2px solid var(--green)}.risk-item{margin:4px 0;padding:7px 8px;border:1px solid rgba(255,92,108,.32);border-radius:6px;background:rgba(255,92,108,.08)}.risk-item b{color:#ff919d}.risk-item p{margin:3px 0 0;color:#b9c4d5}.modal-backdrop{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(0,0,0,.72)}.modal-backdrop[hidden]{display:none}.modal{width:min(560px,92vw);border:1px solid #3a4760;border-radius:8px;background:#101722;box-shadow:0 20px 70px #000;padding:16px}.modal h2{font-size:15px;margin:0 0 13px}.field{display:grid;gap:5px;margin:10px 0}.field label{font-size:11px;color:var(--muted)}.field input{width:100%;border:1px solid var(--line);border-radius:6px;background:#080d14;padding:8px}.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.notice{color:var(--yellow);font-size:11px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(max-width:1100px){body{height:auto;min-height:100vh;overflow:auto}.workspace{display:flex;flex-direction:column}.room{min-height:780px}.top-meta .chip-label{display:none}}@media(max-width:650px){.topbar{gap:8px;padding:0 10px}.brand small{display:none}.top-meta{gap:5px}.top-action{padding:6px 7px}.workspace{padding:6px}.room-head{grid-template-columns:auto minmax(0,1fr)}.room-head .status{grid-column:2}.urlbar{flex-wrap:wrap}.urlbar input{flex-basis:100%}.kpis{grid-template-columns:repeat(5,1fr)}.panels{grid-template-columns:1fr}.panels[data-view="dual"] .panel{display:flex}.panels[data-view="dual"] .panel[data-panel="risk"]{display:none}.panel{min-height:180px;border-right:0;border-bottom:1px solid var(--line)}}
+</style>
+<style>
+.item.member-event{color:var(--muted);background:rgba(40,215,208,.045)}
+.item.member-event .user{color:var(--cyan)}
+.item.member-event .event-text{font-style:italic;color:#9fb0c8}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">双路实时监控 <small>LIVEWATCH DUAL</small></div>
+  <button class="top-action primary" type="button" data-action="connect-all">同时连接</button>
+  <div class="top-meta">
+    <div class="chip" data-role="proxy-status"><span class="dot"></span><span class="chip-label">代理检测中</span></div>
+    <time class="clock" data-role="clock">--:--:--</time>
+    <button class="top-action" type="button" data-action="settings">设置</button>
+  </div>
+</header>
+<main class="workspace" data-role="workspace"></main>
+<div class="modal-backdrop" data-role="settings-modal" hidden>
+  <form class="modal" data-role="settings-form">
+    <h2>双路地址设置</h2>
+    <div class="notice">仅保存两个直播间地址；讯飞凭证继续从旧配置 lwp_cfg 安全读取。</div>
+    <div class="field"><label for="v3-room-one">直播间 1</label><input id="v3-room-one" data-role="setting-url-1" autocomplete="off"></div>
+    <div class="field"><label for="v3-room-two">直播间 2</label><input id="v3-room-two" data-role="setting-url-2" autocomplete="off"></div>
+    <div class="modal-actions"><button class="top-action" type="button" data-action="cancel-settings">取消</button><button class="top-action primary" type="submit">保存并连接</button></div>
+  </form>
+</div>
+<script src="mpegts.min.js"></script>
+<script src="hls.min.js"></script>
+<script>
+"use strict";
+(function () {
+  const DEFAULT_ROOMS = ["https://live.douyin.com/214698741282", "https://live.douyin.com/978001089489"];
+  const ROOM_KEY = "lwp_v3_rooms_v3";
+  const DASHBOARD_SESSION_ID = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2);
+  const DASHBOARD_ACTIVATED_AT = Date.now();
+  const DEFAULT_KEYWORDS = ["投诉", "退款", "骗子", "举报", "卡顿", "黑屏", "假货", "最后一天", "绝对", "最好", "保证赚钱"];
+  const MAX_ITEMS = 240;
+  let deploymentInfo = { publicMode: false, xunfeiConfigured: false };
+
+  function safeJson(value, fallback) {
+    try { return JSON.parse(value); } catch (error) { return fallback; }
+  }
+
+  function loadRoomUrls() {
+    const saved = safeJson(localStorage.getItem(ROOM_KEY) || "", null);
+    let urls = Array.isArray(saved) && saved.length === 2 ? saved.map(function (url) { return String(url || "").trim(); }) : DEFAULT_ROOMS.slice();
+    const oldTestRooms = ["https://live.douyin.com/496516165593", "https://live.douyin.com/134367037829"];
+    if (urls[0] === oldTestRooms[0] && urls[1] === oldTestRooms[1]) urls = DEFAULT_ROOMS.slice();
+    localStorage.setItem(ROOM_KEY, JSON.stringify(urls));
+    return urls;
+  }
+
+  function loadLegacyConfig() {
+    const legacy = safeJson(localStorage.getItem("lwp_cfg") || "{}", {});
+    return {
+      xfAppId: String(legacy.xfAppId || ""),
+      xfKey: String(legacy.xfKey || ""),
+      xfSecret: String(legacy.xfSecret || ""),
+      keywords: Array.isArray(legacy.kw) && legacy.kw.length ? legacy.kw.map(function (word) { return String(word).trim(); }).filter(Boolean) : DEFAULT_KEYWORDS.slice()
+    };
+  }
+
+  function saveRoomUrls(urls) {
+    const exactTwo = [String(urls[0] || "").trim(), String(urls[1] || "").trim()];
+    localStorage.setItem(ROOM_KEY, JSON.stringify(exactTwo));
+  }
+
+  function wsEndpoint(path) {
+    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    return protocol + "//" + location.host + path;
+  }
+
+  async function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(function () { controller.abort(); }, timeoutMs || 30000);
+    try {
+      return await fetch(url, Object.assign({}, options || {}, { signal: controller.signal }));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function timeText(timestamp) {
+    return new Date(timestamp).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  function compactNumber(value) {
+    const number = Number(value) || 0;
+    if (number >= 100000000) return (number / 100000000).toFixed(1) + "亿";
+    if (number >= 10000) return (number / 10000).toFixed(1) + "万";
+    return String(Math.round(number));
+  }
+
+  function appendText(parent, tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    element.textContent = text;
+    parent.appendChild(element);
+    return element;
+  }
+
+  class RoomRuntime {
+    constructor(root, roomId, roomNumber, url, config, reportProxy) {
+      this.root = root;
+      this.roomId = roomId;
+      this.roomNumber = roomNumber;
+      this.url = url;
+      this.connectedUrl = "";
+      this.config = config;
+      this.reportProxy = reportProxy;
+      this.video = this.q("video");
+      this.video.muted = true;
+      this.video.defaultMuted = true;
+      this.video.playsInline = true;
+      this.video.crossOrigin = "anonymous";
+      this.player = null;
+      this.playerType = "";
+      this.danmakuWS = null;
+      this.xfWS = null;
+      this.audioContext = null;
+      this.mediaElementSource = null;
+      this.scriptProcessor = null;
+      this.silentGain = null;
+      this.pollTimer = null;
+      this.streamRetryTimer = null;
+      this.danmakuRetryTimer = null;
+      this.xfRetryTimer = null;
+      this.danmaku = [];
+      this.transcripts = [];
+      this.risks = [];
+      this.counts = { danmaku: 0, transcript: 0, risk: 0, online: 0, likes: 0, gifts: 0 };
+      this.streamRetries = 0;
+      this.danmakuRetries = 0;
+      this.xfRetries = 0;
+      this.maxStreamRetries = 3;
+      this.maxSocketRetries = 4;
+      this.pollAttempts = 0;
+      this.epoch = 0;
+      this.manualStopped = true;
+      this.connecting = false;
+      this.asrReady = false;
+      this.hasFirstFrame = false;
+      this.audioPackets = 0;
+      this.audioBytes = 0;
+      this.audioSignal = 0;
+      this.currentView = "dual";
+      this.bindEvents();
+      this.renderAll();
+    }
+
+    q(selector) {
+      return this.root.querySelector(selector);
+    }
+
+    bindEvents() {
+      const runtime = this;
+      this.q('[data-action="connect"]').addEventListener("click", function () { runtime.start(true); });
+      this.q('[data-action="stop"]').addEventListener("click", function () { runtime.stop(); });
+      this.q('[data-role="url-input"]').addEventListener("change", function (event) {
+        runtime.url = event.target.value.trim();
+        persistRuntimeUrls();
+      });
+      this.q('[data-role="tabs"]').addEventListener("click", function (event) {
+        const tab = event.target.closest("[data-view]");
+        if (!tab) return;
+        runtime.setView(tab.dataset.view);
+      });
+      this.q('[data-action="play"]').addEventListener("click", function () {
+        runtime.video.muted = !runtime.audioContext;
+        runtime.video.play().then(function () { runtime.hidePlayGate(); }).catch(function (error) { runtime.showError("仍无法自动播放：" + error.message); });
+      });
+      this.video.addEventListener("loadstart", function () {
+        if (!runtime.manualStopped && !runtime.hasFirstFrame) runtime.setVideoState("视频正在加载", "已创建播放器，等待媒体数据");
+      });
+      this.video.addEventListener("loadedmetadata", function () {
+        if (!runtime.manualStopped && !runtime.hasFirstFrame) runtime.setVideoState("已取得视频信息", "正在等待首帧画面");
+      });
+      this.video.addEventListener("canplay", function () {
+        if (!runtime.manualStopped && !runtime.hasFirstFrame) runtime.setVideoState("视频可以播放", "等待浏览器开始渲染首帧");
+      });
+      this.video.addEventListener("playing", function () {
+        runtime.hasFirstFrame = true;
+        if (!runtime.audioContext) runtime.video.muted = true;
+        runtime.setStatus("ok", "视频已打通");
+        runtime.setStreamLabel(runtime.playerType === "hls" ? "HLS FIRST FRAME" : "FLV FIRST FRAME");
+        runtime.hideVideoState();
+        runtime.hidePlayGate();
+        runtime.startASR();
+      });
+      this.video.addEventListener("waiting", function () {
+        if (!runtime.manualStopped && !runtime.hasFirstFrame) runtime.setVideoState("视频缓冲中", "已连接媒体源，暂未持续收到数据");
+        else if (!runtime.manualStopped) runtime.setStatus("pending", "视频缓冲中");
+      });
+      this.video.addEventListener("stalled", function () {
+        if (!runtime.manualStopped && !runtime.hasFirstFrame) runtime.setVideoState("视频流停滞", "播放器已启动，但媒体数据暂时中断");
+        else if (!runtime.manualStopped) runtime.setStatus("pending", "视频流停滞");
+      });
+      this.video.addEventListener("error", function () {
+        if (!runtime.manualStopped) {
+          var mediaError = runtime.video.error;
+          runtime.handleStreamError("视频元素错误" + (mediaError ? " (code=" + mediaError.code + ")" : ""), runtime.epoch);
+        }
+      });
+      this.video.addEventListener("pause", function () {
+        if (!runtime.manualStopped && runtime.video.readyState >= 2) runtime.showPlayGate();
+      });
+    }
+
+    async start(resetRetries) {
+      if (this.connecting) {
+        this.setStatus("pending", "正在连接，请稍候");
+        this.setVideoState("连接请求处理中", "无需重复点击，直播源解析通常需要 3–10 秒");
+        return;
+      }
+      const nextUrl = this.q('[data-role="url-input"]').value.trim();
+      const urlChanged = Boolean(this.connectedUrl && nextUrl !== this.connectedUrl);
+      this.url = nextUrl;
+      if (urlChanged) this.resetRoomData();
+      persistRuntimeUrls();
+      if (!this.url) {
+        this.showError("请输入直播间 URL");
+        return;
+      }
+      this.connecting = true;
+      this.manualStopped = false;
+      this.epoch += 1;
+      const token = this.epoch;
+      const connectButton = this.q('[data-action="connect"]');
+      connectButton.disabled = true;
+      connectButton.textContent = "连接中";
+      this.setStatus("pending", "准备连接");
+      this.setStreamLabel("STREAM");
+      this.setVideoState("正在准备连接", this.url);
+      if (resetRetries !== false) this.streamRetries = 0;
+      this.danmakuRetries = 0;
+      this.xfRetries = 0;
+      // 仅清理浏览器资源；服务端 start 接口会原子停止同 roomId 的旧进程。
+      // 不额外发送 stop，避免 stop/start 两个请求乱序导致新会话被误停。
+      this.cleanupLocal(false, false);
+      if (token !== this.epoch || this.manualStopped) { this.connecting = false; connectButton.disabled = false; connectButton.textContent = "连接"; return; }
+      this.setStatus("pending", "解析中");
+      this.setVideoState("正在解析直播源", "通常需要 3–10 秒，请稍候");
+      let proxyReached = false;
+      try {
+        const response = await fetchWithTimeout("/api/transcode/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: this.url, roomId: this.roomId, sessionId: DASHBOARD_SESSION_ID, activatedAt: DASHBOARD_ACTIVATED_AT })
+        }, 30000);
+        const data = await response.json();
+        proxyReached = true;
+        if (token !== this.epoch || this.manualStopped) return;
+        this.reportProxy(true);
+        if (!response.ok || data.ok === false || (!data.flvUrl && !data.hlsUrl)) {
+          throw new Error(data.reason || data.message || "直播源解析失败，房间可能未开播");
+        }
+        this.connectedUrl = this.url;
+        this.updateIdentity(data.uploader || "主播信息待返回", data.title || "直播标题待返回");
+        this.connectDanmaku(token);
+        if (data.flvUrl) {
+          this.setStatus("pending", "源已解析");
+          this.setVideoState("已取得 FLV 直播源", "正在创建播放器，尚未确认首帧");
+          this.playFlv(data.flvUrl, token);
+        } else {
+          this.setStatus("pending", "源已解析");
+          this.setVideoState("直播源已解析", "服务端正在转码为浏览器可播放的 HLS");
+          this.pollHls(data.hlsUrl || "", token);
+        }
+      } catch (error) {
+        if (token !== this.epoch || this.manualStopped) return;
+        if (!proxyReached) this.reportProxy(false);
+        this.showError(error.message || "无法连接代理服务");
+        this.scheduleStreamReconnect();
+      } finally {
+        if (token === this.epoch) this.connecting = false;
+        connectButton.disabled = false;
+        connectButton.textContent = "连接";
+      }
+    }
+
+    async stop() {
+      this.manualStopped = true;
+      this.connectedUrl = "";
+      this.epoch += 1;
+      this.connecting = false;
+      await this.cleanupLocal(true);
+      this.setStatus("bad", "已停止");
+      this.setVideoState("监控已停止", "可单独连接，不影响另一房间");
+    }
+
+    async cleanupLocal(notifyServer, waitForServer) {
+      this.clearTimers();
+      this.closeDanmaku();
+      this.closeASR();
+      this.destroyPlayer();
+      this.hasFirstFrame = false;
+      this.video.pause();
+      this.video.removeAttribute("src");
+      this.video.load();
+      this.video.muted = !this.audioContext;
+      this.hidePlayGate();
+      if (notifyServer) {
+        const stopRequest = fetchWithTimeout("/api/transcode/stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomId: this.roomId })
+        }, 2500).catch(function () {});
+        if (waitForServer !== false) await stopRequest;
+      }
+    }
+
+    clearTimers() {
+      clearTimeout(this.pollTimer);
+      clearTimeout(this.streamRetryTimer);
+      clearTimeout(this.danmakuRetryTimer);
+      clearTimeout(this.xfRetryTimer);
+      this.pollTimer = null;
+      this.streamRetryTimer = null;
+      this.danmakuRetryTimer = null;
+      this.xfRetryTimer = null;
+    }
+
+    destroyPlayer() {
+      if (this.player) {
+        try { this.player.destroy(); } catch (error) {}
+      }
+      this.player = null;
+      this.playerType = "";
+    }
+
+    playFlv(flvUrl, token) {
+      const library = typeof window.mpegts !== "undefined" ? window.mpegts : (typeof window.flvjs !== "undefined" ? window.flvjs : null);
+      if (!library || !library.isSupported || !library.isSupported()) {
+        this.handleStreamError("本地 FLV 播放器不可用", token);
+        return;
+      }
+      try {
+        this.destroyPlayer();
+        this.playerType = "flv";
+        this.player = library.createPlayer({ type: "flv", url: flvUrl, isLive: true, hasAudio: true }, {
+          enableStashBuffer: false,
+          stashInitialSize: 128,
+          autoCleanupSourceBuffer: true,
+          enableWorker: false
+        });
+        this.player.attachMediaElement(this.video);
+        this.player.load();
+        this.setVideoState("播放器已创建", "FLV 已加载，等待视频首帧");
+        this.player.on(library.Events.ERROR, () => this.handleStreamError("FLV 播放中断", token));
+        this.setStreamLabel("FLV DIRECT");
+        this.tryPlay(token);
+      } catch (error) {
+        this.handleStreamError("FLV 启动失败：" + error.message, token);
+      }
+    }
+
+    playHls(hlsUrl, token) {
+      if (!hlsUrl) {
+        this.handleStreamError("转码完成但未返回 HLS 地址", token);
+        return;
+      }
+      try {
+        this.destroyPlayer();
+        this.playerType = "hls";
+        if (typeof window.Hls !== "undefined" && window.Hls.isSupported()) {
+          this.player = new window.Hls({
+            liveSyncDurationCount: 3,
+            liveMaxLatencyDurationCount: 8,
+            maxBufferLength: 20,
+            manifestLoadingMaxRetry: 4,
+            levelLoadingMaxRetry: 4,
+            fragLoadingMaxRetry: 6
+          });
+          this.player.loadSource(hlsUrl);
+          this.player.attachMedia(this.video);
+          this.player.on(window.Hls.Events.MANIFEST_PARSED, () => this.tryPlay(token));
+          this.player.on(window.Hls.Events.ERROR, (event, data) => {
+            if (!data.fatal) return;
+            if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR) {
+              try { this.player.recoverMediaError(); return; } catch (error) {}
+            }
+            if (data.type === window.Hls.ErrorTypes.NETWORK_ERROR) {
+              try { this.player.startLoad(); return; } catch (error) {}
+            }
+            this.handleStreamError("HLS 播放中断", token);
+          });
+        } else if (this.video.canPlayType("application/vnd.apple.mpegurl")) {
+          this.video.src = hlsUrl;
+          this.tryPlay(token);
+        } else {
+          throw new Error("浏览器不支持 HLS");
+        }
+        this.setStreamLabel("HLS TRANSCODE");
+        this.setVideoState("HLS 播放器已创建", "等待转码媒体首帧");
+      } catch (error) {
+        this.handleStreamError("HLS 启动失败：" + error.message, token);
+      }
+    }
+
+    tryPlay(token) {
+      if (token !== this.epoch || this.manualStopped) return;
+      this.video.muted = !this.audioContext;
+      this.setStatus("pending", "等待首帧");
+      this.setVideoState("播放请求已发出", "等待浏览器解码并渲染实际视频画面");
+      this.video.play().then(() => {
+        if (!this.hasFirstFrame) {
+          this.setStatus("pending", "等待首帧");
+          this.setVideoState("播放请求已接受", "浏览器已开始播放，等待实际视频画面");
+        }
+        this.hidePlayGate();
+      }).catch((error) => {
+        this.setVideoState("需要手动开始播放", error && error.message ? error.message : "浏览器阻止了自动播放");
+        this.showPlayGate();
+        this.setStatus("pending", "待点击播放");
+      });
+    }
+
+    pollHls(initialUrl, token) {
+      this.pollAttempts = 0;
+      const check = async () => {
+        if (token !== this.epoch || this.manualStopped) return;
+        try {
+          const response = await fetchWithTimeout("/api/transcode/status?roomId=" + encodeURIComponent(this.roomId), {}, 8000);
+          const data = await response.json();
+          if (token !== this.epoch || this.manualStopped) return;
+          this.reportProxy(true);
+          if (data.status === "error") throw new Error((data.errors && data.errors[0]) || data.reason || "服务端转码失败");
+          if (data.status === "transcoding" || data.status === "ready") {
+            this.playHls(data.hlsUrl || initialUrl, token);
+            return;
+          }
+          if (data.active === false && this.pollAttempts > 1) throw new Error("转码进程已停止");
+          this.pollAttempts += 1;
+          if (this.pollAttempts >= 24) throw new Error("等待 HLS 转码超时");
+          this.setStatus("pending", "转码 " + this.pollAttempts + "/24");
+          this.pollTimer = setTimeout(check, 2000);
+        } catch (error) {
+          if (token !== this.epoch || this.manualStopped) return;
+          this.showError(error.message);
+          this.scheduleStreamReconnect();
+        }
+      };
+      check();
+    }
+
+    handleStreamError(message, token) {
+      if (token !== this.epoch || this.manualStopped) return;
+      this.showError(message);
+      this.scheduleStreamReconnect();
+    }
+
+    scheduleStreamReconnect() {
+      if (this.manualStopped || this.streamRetryTimer || this.streamRetries >= this.maxStreamRetries) {
+        if (this.streamRetries >= this.maxStreamRetries) this.setStatus("bad", "重连已停止");
+        return;
+      }
+      this.streamRetries += 1;
+      const delay = 2500 * this.streamRetries;
+      this.setStatus("pending", "重连 " + this.streamRetries + "/" + this.maxStreamRetries);
+      this.streamRetryTimer = setTimeout(() => {
+        this.streamRetryTimer = null;
+        this.start(false);
+      }, delay);
+    }
+
+    connectDanmaku(token) {
+      this.closeDanmaku();
+      if (!this.url.includes("douyin.com")) return;
+      const ws = new WebSocket(wsEndpoint("/ws/douyin?url=" + encodeURIComponent(this.url) + "&roomId=" + encodeURIComponent(this.roomId) + "&sessionId=" + encodeURIComponent(DASHBOARD_SESSION_ID) + "&activatedAt=" + DASHBOARD_ACTIVATED_AT));
+      this.danmakuWS = ws;
+      ws.onopen = () => { if (this.danmakuWS === ws) this.danmakuRetries = 0; };
+      ws.onmessage = event => {
+        if (token !== this.epoch || this.manualStopped || this.danmakuWS !== ws) return;
+        const message = safeJson(event.data, null);
+        if (!message) return;
+        if (message.type === "proxy_connected") {
+          this.q('[data-role="danmaku-source"]').textContent = "PROXY · 等待抖音";
+          return;
+        }
+        if (message.type === "connected") {
+          const realRoomId = String(message.roomId || "");
+          this.q('[data-role="danmaku-source"]').textContent = "REAL · " + (realRoomId ? realRoomId.slice(-8) : "DOUYIN");
+          return;
+        }
+        if (message.type === "error") {
+          this.q('[data-role="danmaku-source"]').textContent = "弹幕连接失败";
+          return;
+        }
+        if (message.type === "disconnected") {
+          this.q('[data-role="danmaku-source"]').textContent = "弹幕重连中";
+          return;
+        }
+        this.handleDanmakuMessage(message);
+      };
+      ws.onclose = () => {
+        if (this.danmakuWS === ws) this.danmakuWS = null;
+        if (token !== this.epoch || this.manualStopped || this.danmakuRetries >= this.maxSocketRetries) return;
+        this.danmakuRetries += 1;
+        this.danmakuRetryTimer = setTimeout(() => {
+          this.danmakuRetryTimer = null;
+          this.connectDanmaku(token);
+        }, 1800 * this.danmakuRetries);
+      };
+      ws.onerror = function () {};
+    }
+
+    closeDanmaku() {
+      clearTimeout(this.danmakuRetryTimer);
+      this.danmakuRetryTimer = null;
+      const ws = this.danmakuWS;
+      this.danmakuWS = null;
+      if (ws) {
+        ws.onclose = null;
+        try { ws.close(1000, "room lifecycle"); } catch (error) {}
+      }
+    }
+
+    handleDanmakuMessage(message) {
+      const type = message.type;
+      // 实时列表展示真实文字评论和真实进房事件；只有 chat 计入弹幕数与风险分析。
+      if (type === "chat") {
+        this.addDanmaku(message.userName || "访客", message.content || "");
+      } else if (type === "member") {
+        this.addMemberEvent(message.userName || "访客");
+      } else if (type === "gift") {
+        this.counts.gifts += Number(message.comboCount || 1);
+      } else if (type === "like") {
+        this.counts.likes += Number(message.count || 1);
+      } else if (type === "stats") {
+        // 在线人数只采用抖音官方 stats，不再按 member 进房事件自行累加。
+        if (message.online != null) this.counts.online = Number(message.online) || 0;
+      }
+      this.renderKpis();
+    }
+
+    resetRoomData() {
+      this.danmaku = [];
+      this.transcripts = [];
+      this.risks = [];
+      this.counts = { danmaku: 0, transcript: 0, risk: 0, online: 0, likes: 0, gifts: 0 };
+      this.renderDanmaku();
+      this.renderTranscripts();
+      this.renderRisks();
+      this.renderKpis();
+      this.renderTabCounts();
+    }
+
+    addDanmaku(userName, content) {
+      if (!content) return;
+      const item = { type: "chat", time: Date.now(), userName: userName, content: String(content) };
+      this.danmaku.push(item);
+      if (this.danmaku.length > MAX_ITEMS) this.danmaku.shift();
+      this.counts.danmaku += 1;
+      this.checkRisks(item.content, "弹幕", item.userName);
+      this.renderDanmaku();
+      this.renderKpis();
+      this.renderTabCounts();
+    }
+
+    addMemberEvent(userName) {
+      const item = { type: "member", time: Date.now(), userName: String(userName || "访客"), content: "进入直播间" };
+      this.danmaku.push(item);
+      if (this.danmaku.length > MAX_ITEMS) this.danmaku.shift();
+      this.renderDanmaku();
+    }
+
+    startASR() {
+      if (this.xfWS || this.manualStopped) return;
+      const hasBrowserConfig = this.config.xfAppId && this.config.xfKey && this.config.xfSecret;
+      if (!deploymentInfo.xunfeiConfigured && !hasBrowserConfig) {
+        this.q('[data-role="asr-state"]').textContent = "ASR 未配置";
+        return;
+      }
+      const token = this.epoch;
+      try {
+        const ws = new WebSocket(wsEndpoint("/ws/xunfei"));
+        ws.binaryType = "arraybuffer";
+        this.xfWS = ws;
+        this.asrReady = false;
+        this.q('[data-role="asr-state"]').textContent = "ASR 连接中";
+        ws.onopen = () => {
+          if (this.xfWS !== ws || token !== this.epoch) return;
+          ws.send(JSON.stringify(deploymentInfo.xunfeiConfigured ? { useServerConfig: true } : { appId: this.config.xfAppId, apiKey: this.config.xfKey, apiSecret: this.config.xfSecret }));
+        };
+        ws.onmessage = event => {
+          if (this.xfWS !== ws || token !== this.epoch || this.manualStopped) return;
+          const message = safeJson(event.data, null);
+          if (!message) return;
+          if (message.type === "ready") {
+            this.asrReady = true;
+            this.xfRetries = 0;
+            this.q('[data-role="asr-state"]').textContent = "ASR 采集中";
+            this.startAudioGraph();
+          } else if (message.type === "result") {
+            this.handleTranscript(message);
+          } else if (message.type === "error") {
+            this.q('[data-role="asr-state"]').textContent = "ASR 错误：" + String(message.message || "未知错误").slice(0, 28);
+          } else if (message.type === "closed") {
+            this.q('[data-role="asr-state"]').textContent = "ASR 上游已断开";
+          }
+        };
+        ws.onclose = () => {
+          if (this.xfWS === ws) this.xfWS = null;
+          this.stopAudioGraph();
+          if (token === this.epoch && !this.manualStopped) this.scheduleASRReconnect();
+        };
+        ws.onerror = function () {};
+      } catch (error) {
+        this.q('[data-role="asr-state"]').textContent = "ASR 启动失败";
+        this.scheduleASRReconnect();
+      }
+    }
+
+    scheduleASRReconnect() {
+      if (this.manualStopped || this.xfRetryTimer || this.xfRetries >= this.maxSocketRetries) return;
+      this.xfRetries += 1;
+      this.xfRetryTimer = setTimeout(() => {
+        this.xfRetryTimer = null;
+        if (!this.video.paused) this.startASR();
+      }, 2200 * this.xfRetries);
+    }
+
+    startAudioGraph() {
+      if (!this.asrReady) return;
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) throw new Error("浏览器不支持 Web Audio");
+        if (!this.audioContext) {
+          this.audioContext = new AudioContextClass();
+          this.mediaElementSource = this.audioContext.createMediaElementSource(this.video);
+          this.scriptProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
+          this.silentGain = this.audioContext.createGain();
+          this.silentGain.gain.value = 0;
+          this.mediaElementSource.connect(this.scriptProcessor);
+          this.scriptProcessor.connect(this.silentGain);
+          this.silentGain.connect(this.audioContext.destination);
+          // 元素解除 muted 以保证采集到真实音轨；GainNode=0 仍确保扬声器完全静音。
+          this.video.muted = false;
+          this.video.volume = 1;
+          this.scriptProcessor.onaudioprocess = event => {
+            if (!this.asrReady || !this.xfWS || this.xfWS.readyState !== WebSocket.OPEN) return;
+            const source = event.inputBuffer.getChannelData(0);
+            const samples = this.resampleTo16k(source, this.audioContext.sampleRate);
+            const pcm = new Int16Array(samples.length);
+            let peak = 0;
+            for (let index = 0; index < samples.length; index += 1) {
+              const sample = Math.max(-1, Math.min(1, samples[index]));
+              peak = Math.max(peak, Math.abs(sample));
+              pcm[index] = sample < 0 ? sample * 32768 : sample * 32767;
+            }
+            this.xfWS.send(pcm.buffer);
+            this.audioPackets += 1;
+            this.audioBytes += pcm.byteLength;
+            this.audioSignal = Math.max(this.audioSignal * 0.82, peak);
+            if (this.audioPackets % 25 === 0) {
+              const kb = Math.round(this.audioBytes / 1024);
+              const signal = this.audioSignal > 0.002 ? "有声" : "静音";
+              this.q('[data-role="asr-state"]').textContent = "ASR 发送 " + kb + "KB · " + signal;
+            }
+          };
+        }
+        const resume = this.audioContext.state === "suspended" ? this.audioContext.resume() : Promise.resolve();
+        resume.then(() => {
+          this.q('[data-role="asr-state"]').textContent = "ASR 采集中 · 等待音频";
+        }).catch(error => {
+          this.q('[data-role="asr-state"]').textContent = "音频需点击播放：" + error.message;
+        });
+      } catch (error) {
+        this.q('[data-role="asr-state"]').textContent = "音频采集失败：" + String(error.message || error).slice(0, 28);
+      }
+    }
+
+    resampleTo16k(input, sourceRate) {
+      if (sourceRate === 16000) return input;
+      const ratio = sourceRate / 16000;
+      const length = Math.max(1, Math.round(input.length / ratio));
+      const output = new Float32Array(length);
+      for (let outputIndex = 0; outputIndex < length; outputIndex += 1) {
+        const start = Math.floor(outputIndex * ratio);
+        const end = Math.min(input.length, Math.floor((outputIndex + 1) * ratio));
+        let sum = 0;
+        let count = 0;
+        for (let inputIndex = start; inputIndex < end; inputIndex += 1) {
+          sum += input[inputIndex];
+          count += 1;
+        }
+        output[outputIndex] = count ? sum / count : input[Math.min(start, input.length - 1)];
+      }
+      return output;
+    }
+
+    stopAudioGraph() {
+      if (this.audioContext && this.audioContext.state === "running") {
+        try { this.audioContext.suspend().catch(function () {}); } catch (error) {}
+      }
+    }
+
+    destroyAudioGraph() {
+      if (this.scriptProcessor) {
+        this.scriptProcessor.onaudioprocess = null;
+        try { this.scriptProcessor.disconnect(); } catch (error) {}
+      }
+      if (this.mediaElementSource) {
+        try { this.mediaElementSource.disconnect(); } catch (error) {}
+      }
+      if (this.silentGain) {
+        try { this.silentGain.disconnect(); } catch (error) {}
+      }
+      if (this.audioContext) {
+        try { this.audioContext.close().catch(function () {}); } catch (error) {}
+      }
+      this.scriptProcessor = null;
+      this.mediaElementSource = null;
+      this.silentGain = null;
+      this.audioContext = null;
+    }
+
+    closeASR() {
+      clearTimeout(this.xfRetryTimer);
+      this.xfRetryTimer = null;
+      this.asrReady = false;
+      this.audioPackets = 0;
+      this.audioBytes = 0;
+      this.audioSignal = 0;
+      this.stopAudioGraph();
+      const ws = this.xfWS;
+      this.xfWS = null;
+      if (ws) {
+        ws.onclose = null;
+        try { ws.close(1000, "room lifecycle"); } catch (error) {}
+      }
+      this.q('[data-role="asr-state"]').textContent = "ASR 待机";
+    }
+
+    handleTranscript(message) {
+      const text = String(message.text || "").trim();
+      if (!text) return;
+      const resultType = Number(message.resultType);
+      let active = this.transcripts.length ? this.transcripts[this.transcripts.length - 1] : null;
+      if (resultType === 0) {
+        if (!active || active.isFinal) {
+          active = { time: Date.now(), text: text, isFinal: true, segmentId: message.segmentId };
+          this.transcripts.push(active);
+          this.counts.transcript += 1;
+        } else {
+          active.text = text;
+          active.segmentId = message.segmentId;
+          active.isFinal = true;
+        }
+        this.checkRisks(text, "话术", "主播");
+      } else if (resultType === 1) {
+        if (!active || active.isFinal) {
+          active = { time: Date.now(), text: text, isFinal: !!message.isFinal, segmentId: message.segmentId };
+          this.transcripts.push(active);
+          this.counts.transcript += 1;
+        } else {
+          active.text = text;
+          active.segmentId = message.segmentId;
+          active.isFinal = !!message.isFinal;
+        }
+        this.checkRisks(text, "话术", "主播");
+      } else if (!active || active.isFinal) {
+        this.transcripts.push({ time: Date.now(), text: text, isFinal: !!message.isFinal, segmentId: message.segmentId });
+        this.counts.transcript += 1;
+      } else {
+        active.text = text;
+        active.isFinal = !!message.isFinal;
+      }
+      if (this.transcripts.length > MAX_ITEMS) this.transcripts.shift();
+      this.renderTranscripts();
+      this.renderKpis();
+      this.renderTabCounts();
+    }
+
+    checkRisks(text, source, actor) {
+      const hits = this.config.keywords.filter(function (keyword) { return keyword && text.includes(keyword); });
+      if (!hits.length) return;
+      const signature = source + "|" + text + "|" + hits.join(",");
+      const latest = this.risks.length ? this.risks[this.risks.length - 1] : null;
+      if (latest && latest.signature === signature && Date.now() - latest.time < 5000) return;
+      this.risks.push({ time: Date.now(), source: source, actor: actor, text: text, hits: hits, signature: signature });
+      if (this.risks.length > MAX_ITEMS) this.risks.shift();
+      this.counts.risk += 1;
+      this.renderRisks();
+      this.renderKpis();
+      this.renderTabCounts();
+    }
+
+    setView(view) {
+      this.currentView = view;
+      this.q('[data-role="panels"]').dataset.view = view;
+      this.root.querySelectorAll('[data-role="tabs"] [data-view]').forEach(function (tab) {
+        tab.classList.toggle("active", tab.dataset.view === view);
+      });
+    }
+
+    setStatus(kind, text) {
+      const status = this.q('[data-role="status"]');
+      status.className = "status" + (kind === "ok" ? " ok" : kind === "bad" ? " bad" : "");
+      this.q('[data-role="status-text"]').textContent = text;
+    }
+
+    updateIdentity(uploader, title) {
+      this.q('[data-role="uploader"]').textContent = uploader;
+      this.q('[data-role="title"]').textContent = title;
+    }
+
+    setVideoState(title, detail, force) {
+      if (this.hasFirstFrame && force !== true) {
+        this.hideVideoState();
+        return;
+      }
+      const state = this.q('[data-role="video-state"]');
+      state.hidden = false;
+      this.q('[data-role="video-state-title"]').textContent = title;
+      this.q('[data-role="video-state-detail"]').textContent = detail;
+    }
+
+    hideVideoState() {
+      this.q('[data-role="video-state"]').hidden = true;
+    }
+
+    showError(message) {
+      this.setStatus("bad", "连接异常");
+      this.setVideoState("连接异常", message || "未知错误", true);
+    }
+
+    setStreamLabel(text) {
+      this.q('[data-role="stream-label"]').textContent = text;
+    }
+
+    showPlayGate() {
+      this.q('[data-role="play-gate"]').hidden = false;
+    }
+
+    hidePlayGate() {
+      this.q('[data-role="play-gate"]').hidden = true;
+    }
+
+    renderDanmaku() {
+      const list = this.q('[data-role="danmaku-list"]');
+      list.textContent = "";
+      if (!this.danmaku.length) {
+        appendText(list, "div", "empty", "等待弹幕消息");
+        return;
+      }
+      this.danmaku.slice(-100).forEach(function (item) {
+        const isMember = item.type === "member";
+        const row = appendText(list, "div", "item" + (isMember ? " member-event" : ""), "");
+        appendText(row, "span", "time", timeText(item.time));
+        appendText(row, "span", "user", item.userName);
+        appendText(row, "span", isMember ? "event-text" : "", item.content);
+      });
+      list.scrollTop = list.scrollHeight;
+    }
+
+    renderTranscripts() {
+      const list = this.q('[data-role="transcript-list"]');
+      list.textContent = "";
+      if (!this.transcripts.length) {
+        appendText(list, "div", "empty", "播放后持续静音转写");
+        return;
+      }
+      this.transcripts.slice(-100).forEach(function (item) {
+        const row = appendText(list, "div", "item " + (item.isFinal ? "final" : "active"), "");
+        appendText(row, "span", "time", timeText(item.time));
+        appendText(row, "span", "", item.text);
+      });
+      list.scrollTop = list.scrollHeight;
+    }
+
+    renderRisks() {
+      const list = this.q('[data-role="risk-list"]');
+      list.textContent = "";
+      if (!this.risks.length) {
+        appendText(list, "div", "empty", "暂未命中本地关键词");
+        return;
+      }
+      this.risks.slice().reverse().slice(0, 100).forEach(function (risk) {
+        const row = appendText(list, "div", "risk-item", "");
+        appendText(row, "b", "", risk.source + "命中 · " + risk.hits.join("、"));
+        appendText(row, "span", "time", " " + timeText(risk.time));
+        appendText(row, "p", "", risk.actor + "：" + risk.text);
+      });
+    }
+
+    renderKpis() {
+      this.q('[data-kpi="online"]').textContent = compactNumber(this.counts.online);
+      this.q('[data-kpi="danmaku"]').textContent = compactNumber(this.counts.danmaku);
+      this.q('[data-kpi="transcript"]').textContent = compactNumber(this.counts.transcript);
+      this.q('[data-kpi="likes"]').textContent = compactNumber(this.counts.likes);
+      this.q('[data-kpi="risk"]').textContent = compactNumber(this.counts.risk);
+    }
+
+    renderTabCounts() {
+      this.q('[data-count="danmaku"]').textContent = this.counts.danmaku;
+      this.q('[data-count="transcript"]').textContent = this.counts.transcript;
+      this.q('[data-count="risk"]').textContent = this.counts.risk;
+    }
+
+    renderAll() {
+      this.q('[data-role="url-input"]').value = this.url;
+      this.renderDanmaku();
+      this.renderTranscripts();
+      this.renderRisks();
+      this.renderKpis();
+      this.renderTabCounts();
+      this.setView("dual");
+    }
+  }
+
+  function roomMarkup(roomNumber, url) {
+    return '<section class="room" data-room="' + roomNumber + '">' +
+      '<header class="room-head"><div class="room-number">' + roomNumber + '</div><div class="identity"><strong data-role="uploader">等待主播信息</strong><span data-role="title">直播标题待解析</span></div><div class="status" data-role="status"><span class="dot"></span><span data-role="status-text">待连接</span></div></header>' +
+      '<div class="urlbar"><label class="sr-only">房间 URL</label><input data-role="url-input" value="' + url.replace(/&/g, "&amp;").replace(/"/g, "&quot;") + '" autocomplete="off"><button class="room-action primary" data-action="connect" type="button">连接</button><button class="room-action stop" data-action="stop" type="button">停止</button></div>' +
+      '<div class="video-wrap"><video muted playsinline preload="auto" crossorigin="anonymous"></video><div class="video-state" data-role="video-state"><div><strong data-role="video-state-title">直播间未连接</strong><span data-role="video-state-detail">页面加载后自动连接</span></div></div><div class="play-gate" data-role="play-gate" hidden><button data-action="play" type="button">点击开始播放并转写</button></div><div class="stream-label" data-role="stream-label">STREAM</div></div>' +
+      '<div class="kpis"><div class="kpi"><b data-kpi="online">0</b><span>在线</span></div><div class="kpi"><b data-kpi="danmaku">0</b><span>弹幕</span></div><div class="kpi"><b data-kpi="transcript">0</b><span>话术段</span></div><div class="kpi"><b data-kpi="likes">0</b><span>点赞</span></div><div class="kpi risk"><b data-kpi="risk">0</b><span>风险</span></div></div>' +
+      '<div class="data-area"><nav class="tabs" data-role="tabs"><button class="tab active" data-view="dual" type="button">双视图</button><button class="tab" data-view="danmaku" type="button">弹幕 <span class="tab-count" data-count="danmaku">0</span></button><button class="tab" data-view="transcript" type="button">话术 <span class="tab-count" data-count="transcript">0</span></button><button class="tab" data-view="risk" type="button">风险 <span class="tab-count" data-count="risk">0</span></button><span data-role="asr-state" style="margin-left:auto;color:var(--muted);font-size:10px">ASR 待机</span></nav>' +
+      '<div class="panels" data-role="panels" data-view="dual"><section class="panel" data-panel="danmaku"><div class="panel-title"><span>实时弹幕</span><span data-role="danmaku-source">DOUYIN WS</span></div><div class="list" data-role="danmaku-list"></div></section><section class="panel" data-panel="transcript"><div class="panel-title"><span>主播话术</span><span>LIVE ASR</span></div><div class="list" data-role="transcript-list"></div></section><section class="panel" data-panel="risk"><div class="panel-title"><span>风险命中</span><span>LOCAL RULES</span></div><div class="list" data-role="risk-list"></div></section></div></div>' +
+      '</section>';
+  }
+
+  const workspace = document.querySelector('[data-role="workspace"]');
+  const roomUrls = loadRoomUrls();
+  const legacyConfig = loadLegacyConfig();
+  workspace.innerHTML = roomMarkup(1, roomUrls[0]) + roomMarkup(2, roomUrls[1]);
+  const runtimeRoots = workspace.querySelectorAll(".room");
+  const runtimes = [];
+  const proxyStatus = document.querySelector('[data-role="proxy-status"]');
+
+  function reportProxy(ok) {
+    proxyStatus.className = "chip " + (ok ? "ok" : "bad");
+    proxyStatus.querySelector(".chip-label").textContent = ok ? (deploymentInfo.publicMode ? "公网服务在线" : "代理在线") : "代理异常";
+  }
+
+  runtimes.push(new RoomRuntime(runtimeRoots[0], "dual-room-1", 1, roomUrls[0], legacyConfig, reportProxy));
+  runtimes.push(new RoomRuntime(runtimeRoots[1], "dual-room-2", 2, roomUrls[1], legacyConfig, reportProxy));
+
+  function persistRuntimeUrls() {
+    saveRoomUrls(runtimes.map(function (runtime) { return runtime.url; }));
+  }
+
+  document.querySelector('[data-action="connect-all"]').addEventListener("click", function () {
+    runtimes[0].start(true);
+    setTimeout(function () { runtimes[1].start(true); }, 1500);
+  });
+
+  const modal = document.querySelector('[data-role="settings-modal"]');
+  const form = document.querySelector('[data-role="settings-form"]');
+  document.querySelector('[data-action="settings"]').addEventListener("click", function () {
+    form.querySelector('[data-role="setting-url-1"]').value = runtimes[0].q('[data-role="url-input"]').value;
+    form.querySelector('[data-role="setting-url-2"]').value = runtimes[1].q('[data-role="url-input"]').value;
+    modal.hidden = false;
+  });
+  document.querySelector('[data-action="cancel-settings"]').addEventListener("click", function () { modal.hidden = true; });
+  modal.addEventListener("click", function (event) { if (event.target === modal) modal.hidden = true; });
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    const urls = [form.querySelector('[data-role="setting-url-1"]').value.trim(), form.querySelector('[data-role="setting-url-2"]').value.trim()];
+    saveRoomUrls(urls);
+    runtimes.forEach(function (runtime, index) {
+      runtime.url = urls[index];
+      runtime.q('[data-role="url-input"]').value = urls[index];
+    });
+    modal.hidden = true;
+    runtimes[0].start(true);
+    setTimeout(function () { runtimes[1].start(true); }, 1500);
+  });
+
+  function updateClock() {
+    document.querySelector('[data-role="clock"]').textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  window.addEventListener("beforeunload", function () {
+    runtimes.forEach(function (runtime) {
+      runtime.manualStopped = true;
+      runtime.epoch += 1;
+      runtime.clearTimers();
+      runtime.closeDanmaku();
+      runtime.closeASR();
+      runtime.destroyAudioGraph();
+      runtime.destroyPlayer();
+    });
+  });
+
+  fetchWithTimeout("/api/health", {}, 8000).then(function (response) {
+    return response.json();
+  }).then(function (health) {
+    deploymentInfo = {
+      publicMode: Boolean(health.publicMode),
+      xunfeiConfigured: Boolean(health.xunfeiConfigured)
+    };
+    if (deploymentInfo.publicMode) {
+      roomUrls.splice(0, roomUrls.length, DEFAULT_ROOMS[0], DEFAULT_ROOMS[1]);
+      runtimes.forEach(function (runtime, index) {
+        runtime.url = DEFAULT_ROOMS[index];
+        runtime.q('[data-role="url-input"]').value = DEFAULT_ROOMS[index];
+        runtime.q('[data-role="url-input"]').readOnly = true;
+      });
+      document.querySelector('[data-action="settings"]').hidden = true;
+    }
+    reportProxy(true);
+  }).catch(function () {
+    reportProxy(false);
+  }).finally(function () {
+    setTimeout(function () { runtimes[0].start(true); }, 250);
+    setTimeout(function () { runtimes[1].start(true); }, 1750);
+  });
+})();
+</script>
+</body>
+</html>
