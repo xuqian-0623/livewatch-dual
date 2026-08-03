@@ -378,16 +378,31 @@
           this.player = new window.Hls({
             liveSyncDurationCount: 3,
             liveMaxLatencyDurationCount: 8,
-            maxBufferLength: 20,
-            manifestLoadingMaxRetry: 4,
-            levelLoadingMaxRetry: 4,
-            fragLoadingMaxRetry: 6
+            maxBufferLength: deploymentInfo.publicMode ? 8 : 20,
+            backBufferLength: deploymentInfo.publicMode ? 6 : 30,
+            maxBufferHole: 1.5,
+            highBufferWatchdogPeriod: 2,
+            manifestLoadingMaxRetry: 8,
+            levelLoadingMaxRetry: 8,
+            fragLoadingMaxRetry: 10,
+            manifestLoadingRetryDelay: 1000,
+            levelLoadingRetryDelay: 1000,
+            fragLoadingRetryDelay: 800
           });
           this.player.loadSource(hlsUrl);
           this.player.attachMedia(this.video);
           this.player.on(window.Hls.Events.MANIFEST_PARSED, () => this.tryPlay(token));
           this.player.on(window.Hls.Events.ERROR, (event, data) => {
-            if (!data.fatal) return;
+            if (!data.fatal) {
+              if (data.details === "bufferStalledError" || data.details === "bufferNudgeOnStall") {
+                try {
+                  const target = Math.max(0, this.video.currentTime + 0.15);
+                  this.video.currentTime = target;
+                  this.player.startLoad(-1);
+                } catch (error) {}
+              }
+              return;
+            }
             if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR) {
               try { this.player.recoverMediaError(); return; } catch (error) {}
             }
@@ -601,7 +616,7 @@
           if (message.type === "ready") {
             this.asrReady = true;
             this.xfRetries = 0;
-            this.q('[data-role="asr-state"]').textContent = "ASR 采集中";
+            this.q('[data-role="asr-state"]').textContent = "ASR 已连接 · 准备采集";
             this.startAudioGraph();
           } else if (message.type === "result") {
             this.handleTranscript(message);
@@ -674,7 +689,7 @@
         }
         const resume = this.audioContext.state === "suspended" ? this.audioContext.resume() : Promise.resolve();
         resume.then(() => {
-          this.q('[data-role="asr-state"]').textContent = "ASR 采集中 · 等待音频";
+          this.q('[data-role="asr-state"]').textContent = "ASR 已连接 · 等待主播发声";
         }).catch(error => {
           this.q('[data-role="asr-state"]').textContent = "音频需点击播放：" + error.message;
         });
