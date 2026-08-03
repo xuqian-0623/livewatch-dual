@@ -1156,15 +1156,13 @@ const server = http.createServer(async (req, res) => {
         let streamUrl = safeRoomUrl;
         let extraHeaders = [];
         let resolved = null;
-        if (isRoomUrl && YTDLP_PATH) {
-          log(`[${roomId}] 房间链接 → yt-dlp 解析`);
+        if (isRoomUrl) {
+          log(`[${roomId}] 房间链接 → 解析实际媒体流`);
           resolved = await resolveStream(safeRoomUrl);
           if (!resolved.ok) return json(res, 502, { ok: false, reason: resolved.reason, detail: resolved.detail });
           streamUrl = resolved.url;
           extraHeaders = resolved.extraHeaders || [];
-          log(`[${roomId}] yt-dlp 解析成功: ${resolved.formatId} (${resolved.ext})`);
-        } else if (isRoomUrl && !YTDLP_PATH) {
-          return json(res, 503, { ok: false, reason: "检测到房间链接但 yt-dlp 未安装。请提供直 FLV/HLS 地址，或下载 yt-dlp.exe 到 tools/ 目录后重启。" });
+          log(`[${roomId}] 直播源解析成功: ${resolved.formatId} (${resolved.ext}) via=${resolved.via || "resolver"}`);
         }
 
         // 抖音 CDN 通常不提供浏览器跨域 FLV 读取头，统一经本地 FFmpeg 转成同源 HLS。
