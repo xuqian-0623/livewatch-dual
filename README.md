@@ -43,7 +43,9 @@ docker run --rm -p 8787:8787 \
 
 ## Render 部署
 
-仓库内包含 `render.yaml` 和 `Dockerfile`。在 Render 创建 Blueprint 或 Docker Web Service，并在控制台填写：
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/xuqian-0623/livewatch-dual)
+
+仓库内包含 `render.yaml` 和 `Dockerfile`。点击上方按钮创建 Blueprint，或在 Render 创建 Docker Web Service，并在控制台填写：
 
 - `XUNFEI_APP_ID`
 - `XUNFEI_API_KEY`
