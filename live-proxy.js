@@ -936,6 +936,22 @@ function truncateUtf8(value, maxBytes) {
   return result + "…";
 }
 
+function truncateUtf8Lines(value, maxBytes) {
+  const text = String(value == null ? "" : value)
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
+  let result = "";
+  for (const character of text) {
+    if (Buffer.byteLength(result + character + "…", "utf8") > maxBytes) break;
+    result += character;
+  }
+  return result + "…";
+}
+
 function truncateChars(value, maxChars) {
   const characters = Array.from(cleanNotificationText(value));
   if (characters.length <= maxChars) return characters.join("");
@@ -978,12 +994,8 @@ function buildWeComRiskCard(input, analysis) {
       },
       quote_area: {
         type: 0,
-        title: "风险原因与整改建议",
-        quote_text: truncateUtf8([
-          `风险原因：${analysis.reason}`,
-          `整改建议：${analysis.suggestion}`,
-          "监控提醒：请及时复核直播内容，并根据整改建议处理。此消息由 AI 风险分析确认后自动发送。"
-        ].join("\n"), 4096)
+        title: "风险详情",
+        quote_text: "完整风险原因和整改建议见下一条详情消息。"
       },
       sub_title_text: truncateChars(`${sourceLabel}：${input.text}`, 112),
       horizontal_content_list: [
@@ -996,6 +1008,32 @@ function buildWeComRiskCard(input, analysis) {
         type: 1,
         url: WECOM_RISK_CONFIG.cardUrl || roomUrl
       }
+    }
+  };
+}
+
+function buildWeComRiskDetail(input, analysis) {
+  const roomNumber = input.roomId === "dual-room-1" ? "1" : "2";
+  const sourceLabel = input.source === "话术" ? "主播话术" : "用户弹幕";
+  const content = [
+    `## 直播风险详情 · ${analysis.level}风险`,
+    `>直播间：直播间 ${roomNumber}`,
+    `>来源：${sourceLabel}`,
+    `>预警词：${(input.hits || []).join("、")}`,
+    `>违规点：${analysis.type}`,
+    "",
+    `**原文**：${input.text}`,
+    "",
+    `**风险原因**：${analysis.reason}`,
+    "",
+    `**整改建议**：${analysis.suggestion}`,
+    "",
+    `<font color="warning">监控提醒：请及时复核直播内容，并根据整改建议处理。此消息由 AI 风险分析确认后自动发送。</font>`
+  ].join("\n");
+  return {
+    msgtype: "markdown",
+    markdown: {
+      content: truncateUtf8Lines(content, 4000)
     }
   };
 }
@@ -1038,8 +1076,7 @@ function sendWeComPayload(payload) {
   });
 }
 
-async function sendWeComRiskNotification(input, analysis) {
-  const payload = buildWeComRiskCard(input, analysis);
+async function sendWeComPayloadWithRetry(payload, label) {
   let lastError = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
@@ -1050,7 +1087,12 @@ async function sendWeComRiskNotification(input, analysis) {
       if (attempt < 3) await new Promise(resolve => setTimeout(resolve, attempt * 500));
     }
   }
-  throw lastError || new Error("企业微信发送失败");
+  throw new Error(`${label}发送失败: ${lastError ? lastError.message : "未知错误"}`);
+}
+
+async function sendWeComRiskNotification(input, analysis) {
+  await sendWeComPayloadWithRetry(buildWeComRiskCard(input, analysis), "风险卡片");
+  await sendWeComPayloadWithRetry(buildWeComRiskDetail(input, analysis), "风险详情");
 }
 
 function queueWeComRiskNotification(input, analysis) {
