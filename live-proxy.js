@@ -978,17 +978,19 @@ function buildWeComRiskCard(input, analysis) {
       },
       quote_area: {
         type: 0,
-        title: "监控提醒",
-        quote_text: truncateUtf8("请及时复核直播内容，并根据整改建议处理。此消息由 AI 风险分析确认后自动发送。", 300)
+        title: "风险原因与整改建议",
+        quote_text: truncateUtf8([
+          `风险原因：${analysis.reason}`,
+          `整改建议：${analysis.suggestion}`,
+          "监控提醒：请及时复核直播内容，并根据整改建议处理。此消息由 AI 风险分析确认后自动发送。"
+        ].join("\n"), 4096)
       },
       sub_title_text: truncateChars(`${sourceLabel}：${input.text}`, 112),
       horizontal_content_list: [
         { keyname: "直播间", value: truncateChars(`直播间 ${roomNumber}`, 26) },
         { keyname: "预警词", value: truncateChars((input.hits || []).join("、"), 26) },
         { keyname: "违规点", value: truncateChars(analysis.type, 26) },
-        { keyname: "原文", value: truncateChars(input.text, 26) },
-        { keyname: "风险原因", value: truncateChars(analysis.reason, 26) },
-        { keyname: "整改建议", value: truncateChars(analysis.suggestion, 26) }
+        { keyname: "原文", value: truncateChars(input.text, 26) }
       ],
       card_action: {
         type: 1,
