@@ -838,6 +838,31 @@ function parseRiskAnalysisContent(content) {
   return normalizeRiskAnalysis(JSON.parse(text));
 }
 
+function enforceElectricPotHardRules(input, analysis) {
+  if (input.source !== "话术") return analysis;
+  const text = String(input.text || "").replace(/\s+/g, "");
+  const dangerousClaim = /(?:绝不漏电|永不漏电|进水.{0,8}(?:绝不|不会|不可能).{0,6}(?:漏电|短路|起火)|随便.{0,6}(?:冲洗|水洗|泡水)|(?:随便|可以).{0,4}干烧|不用(?:看锅|看火)|(?:永远|绝对|永不).{0,5}(?:不粘|不坏|不开裂|不脱落))/;
+  const rejectsBefore = /(?:不要|不能|不可以|禁止|切勿|别|并非|不是|不敢|无法|不能保证).{0,20}(?:绝不漏电|永不漏电|进水.{0,8}(?:绝不|不会|不可能)|随便.{0,6}(?:冲洗|水洗|泡水)|(?:随便|可以)?.{0,4}干烧|不用(?:看锅|看火)|(?:永远|绝对|永不).{0,5}(?:不粘|不坏|不开裂|不脱落))/;
+  const rejectsAfter = new RegExp(dangerousClaim.source + ".{0,12}(?:是不可能的?|不可能做到|不能保证|不现实|不严谨|是错误的?|不可信|不能这么说)");
+  if (rejectsBefore.test(text) || rejectsAfter.test(text)) return analysis;
+  const hardRules = [
+    /(?:进水|泡水|水冲|冲洗).{0,12}(?:也|都)?(?:绝不|不会|不可能).{0,6}(?:漏电|短路|起火)/,
+    /(?:绝不|永不|不可能).{0,6}(?:漏电|短路|起火)/,
+    /(?:随便|直接).{0,6}(?:冲洗|水洗|泡水).{0,6}(?:底座|耦合器)/,
+    /(?:随便|可以).{0,4}干烧/,
+    /不用(?:看锅|看火)/,
+    /(?:永远|绝对|永不).{0,5}(?:不粘|不坏|不开裂|不脱落)/
+  ];
+  if (!hardRules.some(rule => rule.test(text))) return analysis;
+  return {
+    verdict: "风险",
+    level: "高",
+    type: "产品与用电安全",
+    reason: "主播作出绝对安全或危险使用承诺，可能弱化底座防水、漏电、防干烧等必要安全边界。",
+    suggestion: "立即停止绝对化安全承诺，按说明书明确底座、耦合器防水限制及正确使用要求。"
+  };
+}
+
 function postJson(url, headers, payload, timeoutMs) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
@@ -940,7 +965,7 @@ async function analyzeRiskWithLLM(input) {
     }, LLM_TIMEOUT_MS);
     const content = response && response.choices && response.choices[0] && response.choices[0].message && response.choices[0].message.content;
     if (!content) throw new Error("AI 未返回分析内容");
-    const analysis = parseRiskAnalysisContent(content);
+    const analysis = enforceElectricPotHardRules(input, parseRiskAnalysisContent(content));
     RISK_AI_CACHE.set(key, { analysis, expiresAt: Date.now() + 10 * 60 * 1000 });
     if (RISK_AI_CACHE.size > 300) {
       const oldestKey = RISK_AI_CACHE.keys().next().value;
@@ -1038,7 +1063,7 @@ function getDiagnostics() {
   return {
     ok: stalledTranscodes === 0,
     service: "livewatch-proxy",
-    version: "3.7",
+    version: "3.8",
     uptimeSec: Math.floor(process.uptime()),
     publicMode: PUBLIC_MODE,
     dependencies: {
