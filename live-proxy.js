@@ -64,7 +64,16 @@ const RISK_AI_CACHE = new Map();
 const RISK_AI_PENDING = new Map();
 const RISK_AI_RATE = new Map();
 const RISK_AI_GLOBAL_RATE = [];
-const RISK_AI_ALLOWED_KEYWORDS = String(process.env.RISK_AI_KEYWORDS || "投诉,退款,骗子,举报,卡顿,黑屏,假货,最后一天,绝对,最好,保证赚钱").split(",").map(item => item.trim()).filter(Boolean);
+const SMALL_APPLIANCE_RISK_KEYWORDS = [
+  "漏电", "触电", "起火", "着火", "爆炸", "冒烟", "烧焦", "短路", "过热", "烫伤", "异味", "电线发热", "插头发热", "自动断电失灵", "干烧", "炸锅",
+  "不发货", "少发", "漏发", "破损", "坏了", "不能用", "无法启动", "质量问题", "退货", "退款", "售后", "保修", "拒绝退款", "投诉", "举报", "骗子", "假货", "虚假宣传",
+  "绝对安全", "绝对不会", "永不", "永久", "百分之百", "100%", "零风险", "完全无害", "无任何副作用", "最好", "第一", "唯一", "顶级", "最强", "全能",
+  "全网最低", "最低价", "历史最低", "最后一天", "仅限今天", "最后一单", "马上涨价", "马上恢复原价", "以后再也没有", "错过不再有",
+  "国家认证", "国家级", "官方指定", "权威推荐", "行业第一", "销量第一", "全网第一", "专利产品", "食品级", "医用级",
+  "治疗", "治愈", "抗癌", "降血压", "降血糖", "改善疾病", "养生治病", "减肥", "瘦身", "排毒", "抗菌率", "杀菌率", "除螨率",
+  "绝对不粘", "永不粘锅", "永久耐用", "终身质保", "保证不坏", "保证有效", "一定有效", "无油烟", "零油烟", "零甲醛", "没有辐射", "零辐射"
+];
+const RISK_AI_ALLOWED_KEYWORDS = String(process.env.RISK_AI_KEYWORDS || SMALL_APPLIANCE_RISK_KEYWORDS.join(",")).split(",").map(item => item.trim()).filter(Boolean);
 let riskAIActive = 0;
 const riskAIQueue = [];
 
@@ -1005,7 +1014,7 @@ function getDiagnostics() {
   return {
     ok: stalledTranscodes === 0,
     service: "livewatch-proxy",
-    version: "3.4",
+    version: "3.5",
     uptimeSec: Math.floor(process.uptime()),
     publicMode: PUBLIC_MODE,
     dependencies: {
@@ -1495,7 +1504,8 @@ const server = http.createServer(async (req, res) => {
       hasFFmpeg: !!FFMPEG_PATH,
       hasYtdlp: !!YTDLP_PATH,
       xunfeiConfigured: diagnostics.dependencies.xunfeiConfigured,
-      llmConfigured: diagnostics.dependencies.llmConfigured
+      llmConfigured: diagnostics.dependencies.llmConfigured,
+      riskKeywords: RISK_AI_ALLOWED_KEYWORDS
     });
   }
 
@@ -1504,12 +1514,10 @@ const server = http.createServer(async (req, res) => {
   if (p === "/api/risk/analyze" && req.method === "POST") {
     const body = await readSafeBody(32768);
     if (body == null) return json(res, 413, { ok: false, reason: "请求内容过大" });
-    if (!isLLMConfigured()) return json(res, 503, { ok: false, reason: "AI 风险分析未配置" });
     try {
       const input = JSON.parse(body || "{}");
       const roomId = String(input.roomId || "");
       if (!PUBLIC_ROOM_MAP.has(roomId) || !validateRoomId(roomId)) return json(res, 403, { ok: false, reason: "仅允许分析固定监控房间" });
-      if (!allowRiskAIRequest(req, roomId)) return json(res, 429, { ok: false, reason: "AI 分析请求过于频繁" });
       const source = input.source === "话术" ? "话术" : input.source === "弹幕" ? "弹幕" : "";
       const actor = String(input.actor || "").trim().slice(0, 80);
       const text = String(input.text || "").trim().slice(0, 1000);
@@ -1517,6 +1525,8 @@ const server = http.createServer(async (req, res) => {
       if (!source || !text || !hits.length) return json(res, 400, { ok: false, reason: "风险点信息不完整" });
       const verifiedHits = hits.filter(hit => RISK_AI_ALLOWED_KEYWORDS.includes(hit) && text.includes(hit));
       if (!verifiedHits.length) return json(res, 400, { ok: false, reason: "文本未命中服务端风险关键词" });
+      if (!isLLMConfigured()) return json(res, 503, { ok: false, reason: "AI 风险分析未配置" });
+      if (!allowRiskAIRequest(req, roomId)) return json(res, 429, { ok: false, reason: "AI 分析请求过于频繁" });
       const contextInput = input.context && typeof input.context === "object" ? input.context : {};
       const cleanList = (value, maxItems) => Array.isArray(value) ? value.slice(-maxItems).map(item => String(item || "").trim().slice(0, 300)).filter(Boolean) : [];
       const analysis = await analyzeRiskWithLLM({
