@@ -16,9 +16,9 @@ services:
         sync: false
       - key: XUNFEI_API_SECRET
         sync: false
-      - key: LLM_API_URL
+      - key: XFYUN_LLM_API_BASE
         sync: false
-      - key: LLM_API_KEY
+      - key: XFYUN_LLM_API_KEY
         sync: false
-      - key: LLM_MODEL
+      - key: XFYUN_LLM_MODEL_ID
         sync: false

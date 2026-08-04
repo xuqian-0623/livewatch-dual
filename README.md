@@ -15,7 +15,7 @@
 - 抖音真实 Webcast 弹幕中继
 - FFmpeg 将直播流转换为同源 HLS
 - 讯飞实时语音转写 WebSocket 中继
-- 关键词命中后调用 OpenAI 兼容接口，输出风险等级、类型、原因和建议
+- 关键词命中后调用讯飞星火推理服务（OpenAI 兼容协议），输出风险等级、类型、原因和建议
 - 每个直播间仅导出风险点 CSV，不导出普通弹幕或话术
 - 多个网页访客共享两路 FFmpeg 与弹幕上游
 
@@ -52,11 +52,11 @@ docker run --rm -p 8787:8787 \
 - `XUNFEI_APP_ID`
 - `XUNFEI_API_KEY`
 - `XUNFEI_API_SECRET`
-- `LLM_API_URL`：OpenAI 兼容的 Chat Completions HTTPS 地址
-- `LLM_API_KEY`
-- `LLM_MODEL`
+- `XFYUN_LLM_API_BASE`：讯飞服务管控页面显示的 API Base；新服务通常为 `https://maas-api.cn-huabei-1.xf-yun.com/v2`
+- `XFYUN_LLM_API_KEY`：文本推理服务卡片上的 APIKey，不是 ASR 的 APIKey
+- `XFYUN_LLM_MODEL_ID`：模型服务卡片上的 modelId
 
-AI 风险分析仅在本地关键词命中后调用；未配置 LLM 时仍会正常记录和导出关键词风险点。不要把真实凭证写进 Git 仓库。`render.yaml` 默认使用 Free 规格，部署时不要求绑定付费实例；但免费实例会休眠，而且双路实时转码可能因 CPU/内存不足而卡顿或被重启。需要稳定运行时再手动升级规格。
+服务端会自动在 API Base 后拼接 `/chat/completions`。AI 风险分析仅在本地关键词命中后调用；未配置文本模型时仍会正常记录和导出关键词风险点。不要把真实凭证写进 Git 仓库。`render.yaml` 默认使用 Free 规格，部署时不要求绑定付费实例；但免费实例会休眠，而且双路实时转码可能因 CPU/内存不足而卡顿或被重启。需要稳定运行时再手动升级规格。
 
 ## 安全说明
 
@@ -64,7 +64,7 @@ AI 风险分析仅在本地关键词命中后调用；未配置 LLM 时仍会正
 - 公网模式限制固定房间及固定 `dual-room-1/2` 槽位。
 - 公网访客停止页面时不会关闭共享转码。
 - 讯飞凭证仅从服务器环境变量读取时，不会发送到浏览器。
-- LLM 密钥只由服务端读取，不写入网页或浏览器存储；风险分析接口限制固定房间、输入大小、频率和并发数。
+- 讯飞文本模型 APIKey 只由服务端读取，不写入网页或浏览器存储；风险分析接口限制固定房间、输入大小、频率和并发数。
 
 ## 健康检查
 
