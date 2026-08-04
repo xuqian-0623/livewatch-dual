@@ -14,7 +14,7 @@
 .item.member-event{color:var(--muted);background:rgba(40,215,208,.045)}
 .item.member-event .user{color:var(--cyan)}
 .item.member-event .event-text{font-style:italic;color:#9fb0c8}
-.panel-actions{display:flex;align-items:center;gap:7px}.panel-actions .room-action{padding:3px 7px;font-size:10px}.risk-item .ai-grid{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.08)}.risk-item .ai-label{color:var(--muted);font-size:10px}.risk-item .ai-value{color:#cbd5e5}.risk-level{display:inline-flex;margin-left:7px;padding:1px 6px;border-radius:10px;font-size:10px}.risk-level.high{color:#ffd9dd;background:rgba(255,92,108,.2)}.risk-level.medium{color:#ffe8ac;background:rgba(244,201,93,.16)}.risk-level.low{color:#bcf1c9;background:rgba(82,210,115,.15)}
+.panel-actions{display:flex;align-items:center;gap:7px}.panel-actions .room-action{padding:3px 7px;font-size:10px}.risk-item .ai-grid{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.08)}.risk-item .ai-label{color:var(--muted);font-size:10px}.risk-item .ai-value{color:#cbd5e5}.risk-level{display:inline-flex;margin-left:7px;padding:1px 6px;border-radius:10px;font-size:10px}.risk-level.high{color:#ffd9dd;background:rgba(255,92,108,.2)}.risk-level.medium{color:#ffe8ac;background:rgba(244,201,93,.16)}.risk-level.low{color:#bcf1c9;background:rgba(82,210,115,.15)}.risk-item.drill{border-color:rgba(139,124,246,.5);background:rgba(139,124,246,.07)}.drill-badge{display:inline-flex;margin-left:7px;padding:1px 6px;border-radius:10px;color:#dcd7ff;background:rgba(139,124,246,.2);font-size:10px}.drill-modal{width:min(560px,calc(100vw - 24px))}.drill-modal textarea,.drill-modal select{width:100%;border:1px solid var(--line);border-radius:6px;background:#0a0f17;color:var(--text);padding:9px 10px}.drill-modal textarea{min-height:110px;resize:vertical;line-height:1.6}.drill-meta{display:flex;justify-content:space-between;gap:12px;color:var(--muted);font-size:11px}.drill-result-note{color:#b9b0ff;font-size:11px}
 </style>
 </head>
 <body>
@@ -38,6 +38,16 @@
     <div class="modal-actions"><button class="top-action" type="button" data-action="cancel-settings">取消</button><button class="top-action primary" type="submit">保存并连接</button></div>
   </form>
 </div>
+<div class="modal-backdrop" data-role="drill-modal" hidden>
+  <form class="modal drill-modal" data-role="drill-form">
+    <h2>人工风险演练</h2>
+    <div class="notice">调用真实讯飞模型；结果仅用于测试，不计入正式风险统计，也不会导出到风险 CSV。</div>
+    <div class="field"><label for="risk-drill-template">演练类型</label><select id="risk-drill-template" data-role="drill-template"><option value="safety">产品与用电安全</option><option value="absolute">绝对化宣传</option><option value="medical">医疗与健康功效</option><option value="promotion">虚假促销</option><option value="quality">质量过度承诺</option><option value="custom">自定义话术</option></select></div>
+    <div class="field"><label for="risk-drill-text">测试话术</label><textarea id="risk-drill-text" data-role="drill-text" maxlength="1000"></textarea></div>
+    <div class="drill-meta"><span data-role="drill-room">直播间演练</span><span>至少需要命中一个风险词</span></div>
+    <div class="modal-actions"><button class="top-action" type="button" data-action="cancel-drill">取消</button><button class="top-action primary" type="submit" data-role="drill-submit">开始演练</button></div>
+  </form>
+</div>
 <script src="mpegts.min.js"></script>
 <script src="hls.min.js"></script>
 <script>
@@ -49,6 +59,14 @@
   const DASHBOARD_ACTIVATED_AT = Date.now();
   const DEFAULT_KEYWORDS = ["漏电", "触电", "起火", "着火", "爆炸", "冒烟", "烧焦", "短路", "过热", "烫伤", "异味", "电线发热", "插头发热", "自动断电失灵", "干烧", "炸锅", "不发货", "少发", "漏发", "破损", "坏了", "不能用", "无法启动", "质量问题", "退货", "退款", "售后", "保修", "拒绝退款", "投诉", "举报", "骗子", "假货", "虚假宣传", "绝对安全", "绝对不会", "永不", "永久", "百分之百", "100%", "零风险", "完全无害", "无任何副作用", "最好", "第一", "唯一", "顶级", "最强", "全能", "全网最低", "最低价", "历史最低", "最后一天", "仅限今天", "最后一单", "马上涨价", "马上恢复原价", "以后再也没有", "错过不再有", "国家认证", "国家级", "官方指定", "权威推荐", "行业第一", "销量第一", "全网第一", "专利产品", "食品级", "医用级", "治疗", "治愈", "抗癌", "降血压", "降血糖", "改善疾病", "养生治病", "减肥", "瘦身", "排毒", "抗菌率", "杀菌率", "除螨率", "绝对不粘", "永不粘锅", "永久耐用", "终身质保", "保证不坏", "保证有效", "一定有效", "无油烟", "零油烟", "零甲醛", "没有辐射", "零辐射"];
   const MAX_ITEMS = 240;
+  const RISK_DRILL_TEMPLATES = {
+    safety: "这个插头有漏电的情况，用一会儿电线就发热，还出现了烧焦味。",
+    absolute: "这款产品绝对安全，百分之百不会坏，是全网最好的产品。",
+    medical: "这款养生壶可以治疗高血压，还能降血糖和排毒。",
+    promotion: "今天是最后一天，也是全网最低价，错过以后再也没有。",
+    quality: "这个锅保证不坏，终身质保，永不粘锅，而且完全没有油烟。",
+    custom: ""
+  };
   let deploymentInfo = { publicMode: false, xunfeiConfigured: false, llmConfigured: false };
 
   function safeJson(value, fallback) {
@@ -149,6 +167,7 @@
       this.danmaku = [];
       this.transcripts = [];
       this.risks = [];
+      this.drillRisks = [];
       this.counts = { danmaku: 0, transcript: 0, risk: 0, online: 0, likes: 0, gifts: 0 };
       this.streamRetries = 0;
       this.danmakuRetries = 0;
@@ -195,6 +214,9 @@
       });
       this.q('[data-action="export-risks"]').addEventListener("click", function () {
         runtime.exportRisks();
+      });
+      this.q('[data-action="risk-drill"]').addEventListener("click", function () {
+        openRiskDrill(runtime);
       });
       this.video.addEventListener("loadstart", function () {
         if (!runtime.manualStopped && !runtime.hasFirstFrame) runtime.setVideoState("视频正在加载", "已创建播放器，等待媒体数据");
@@ -685,6 +707,7 @@
       this.danmaku = [];
       this.transcripts = [];
       this.risks = [];
+      this.drillRisks = [];
       this.counts = { danmaku: 0, transcript: 0, risk: 0, online: 0, likes: 0, gifts: 0 };
       this.renderDanmaku();
       this.renderTranscripts();
@@ -951,6 +974,33 @@
       if (deploymentInfo.llmConfigured) this.analyzeRisk(risk);
     }
 
+    runRiskDrill(text) {
+      const cleanText = String(text || "").trim().slice(0, 1000);
+      const hits = this.config.keywords.filter(function (keyword) { return keyword && cleanText.includes(keyword); });
+      if (!cleanText) throw new Error("请输入测试话术");
+      if (!hits.length) throw new Error("测试话术未命中当前风险词库");
+      if (!deploymentInfo.llmConfigured) throw new Error("讯飞文本模型尚未配置");
+      const risk = {
+        id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2),
+        time: Date.now(),
+        source: "话术",
+        actor: "人工演练",
+        text: cleanText,
+        hits: hits,
+        signature: "drill|" + Date.now() + "|" + hits.join(","),
+        isDrill: true,
+        aiStatus: "pending",
+        ai: null,
+        aiError: ""
+      };
+      this.drillRisks.push(risk);
+      if (this.drillRisks.length > 20) this.drillRisks.shift();
+      this.renderRisks();
+      this.setView("risk");
+      risk.analysisPromise = this.analyzeRisk(risk);
+      return risk;
+    }
+
     buildRiskContext(riskTime) {
       const recentDanmaku = this.danmaku.filter(function (item) {
         return item.type === "chat" && item.time <= riskTime;
@@ -977,16 +1027,19 @@
             actor: risk.actor,
             text: risk.text,
             hits: risk.hits,
+            drill: Boolean(risk.isDrill),
             context: this.buildRiskContext(risk.time)
           })
         }, 25000);
         const data = await response.json();
         if (!response.ok || !data.ok || !data.analysis) throw new Error(data.reason || "AI 分析失败");
-        if (requestEpoch !== this.epoch || this.risks.indexOf(risk) < 0) return;
+        const target = risk.isDrill ? this.drillRisks : this.risks;
+        if ((!risk.isDrill && requestEpoch !== this.epoch) || target.indexOf(risk) < 0) return;
         risk.aiStatus = "done";
         risk.ai = data.analysis;
       } catch (error) {
-        if (requestEpoch !== this.epoch || this.risks.indexOf(risk) < 0) return;
+        const target = risk.isDrill ? this.drillRisks : this.risks;
+        if ((!risk.isDrill && requestEpoch !== this.epoch) || target.indexOf(risk) < 0) return;
         risk.aiStatus = "error";
         risk.aiError = String(error.message || error).slice(0, 100);
       }
@@ -1000,13 +1053,14 @@
     }
 
     exportRisks() {
-      if (!this.risks.length) {
-        this.setStatus("pending", "暂无风险点可导出");
+      const officialRisks = this.risks.slice();
+      if (!officialRisks.length) {
+        this.setStatus("pending", "暂无正式风险点可导出");
         return;
       }
       const runtime = this;
       const header = ["时间", "直播间", "来源", "相关人员", "风险原文", "命中关键词", "AI风险等级", "AI风险类型", "AI原因", "AI建议", "AI状态"];
-      const rows = this.risks.map(function (risk) {
+      const rows = officialRisks.map(function (risk) {
         const ai = risk.ai || {};
         const status = risk.aiStatus === "done" ? "已分析" : risk.aiStatus === "pending" ? "分析中" : risk.aiStatus === "unconfigured" ? "AI未配置" : "分析失败";
         return [
@@ -1122,13 +1176,15 @@
     renderRisks() {
       const list = this.q('[data-role="risk-list"]');
       list.textContent = "";
-      if (!this.risks.length) {
+      const displayRisks = this.risks.concat(this.drillRisks).sort(function (a, b) { return b.time - a.time; }).slice(0, 100);
+      if (!displayRisks.length) {
         appendText(list, "div", "empty", "暂未命中风险关键词");
         return;
       }
-      this.risks.slice().reverse().slice(0, 100).forEach(function (risk) {
-        const row = appendText(list, "div", "risk-item", "");
+      displayRisks.forEach(function (risk) {
+        const row = appendText(list, "div", "risk-item" + (risk.isDrill ? " drill" : ""), "");
         const title = appendText(row, "b", "", risk.source + "命中 · " + risk.hits.join("、"));
+        if (risk.isDrill) appendText(title, "span", "drill-badge", "人工演练");
         if (risk.aiStatus === "done" && risk.ai) {
           appendText(title, "span", "risk-level " + (risk.ai.level === "高" ? "high" : risk.ai.level === "低" ? "low" : "medium"), risk.ai.level + "风险");
         }
@@ -1181,7 +1237,7 @@
       '<div class="video-wrap"><video muted playsinline preload="auto" crossorigin="anonymous"></video><div class="video-state" data-role="video-state"><div><strong data-role="video-state-title">直播间未连接</strong><span data-role="video-state-detail">页面加载后自动连接</span></div></div><div class="play-gate" data-role="play-gate" hidden><button data-action="play" type="button">点击开始播放并转写</button></div><div class="stream-label" data-role="stream-label">STREAM</div></div>' +
       '<div class="kpis"><div class="kpi"><b data-kpi="online">0</b><span>在线</span></div><div class="kpi"><b data-kpi="danmaku">0</b><span>弹幕</span></div><div class="kpi"><b data-kpi="transcript">0</b><span>话术段</span></div><div class="kpi"><b data-kpi="likes">0</b><span>点赞</span></div><div class="kpi risk"><b data-kpi="risk">0</b><span>风险</span></div></div>' +
       '<div class="data-area"><nav class="tabs" data-role="tabs"><button class="tab active" data-view="dual" type="button">双视图</button><button class="tab" data-view="danmaku" type="button">弹幕 <span class="tab-count" data-count="danmaku">0</span></button><button class="tab" data-view="transcript" type="button">话术 <span class="tab-count" data-count="transcript">0</span></button><button class="tab" data-view="risk" type="button">风险 <span class="tab-count" data-count="risk">0</span></button><span data-role="asr-state" style="margin-left:auto;color:var(--muted);font-size:10px">ASR 待机</span></nav>' +
-      '<div class="panels" data-role="panels" data-view="dual"><section class="panel" data-panel="danmaku"><div class="panel-title"><span>实时弹幕</span><span data-role="danmaku-source">DOUYIN WS</span></div><div class="list" data-role="danmaku-list"></div></section><section class="panel" data-panel="transcript"><div class="panel-title"><span>主播话术</span><span>LIVE ASR</span></div><div class="list" data-role="transcript-list"></div></section><section class="panel" data-panel="risk"><div class="panel-title"><span>风险命中</span><span class="panel-actions"><span>RULES + AI</span><button class="room-action" data-action="export-risks" type="button">导出风险点</button></span></div><div class="list" data-role="risk-list"></div></section></div></div>' +
+      '<div class="panels" data-role="panels" data-view="dual"><section class="panel" data-panel="danmaku"><div class="panel-title"><span>实时弹幕</span><span data-role="danmaku-source">DOUYIN WS</span></div><div class="list" data-role="danmaku-list"></div></section><section class="panel" data-panel="transcript"><div class="panel-title"><span>主播话术</span><span>LIVE ASR</span></div><div class="list" data-role="transcript-list"></div></section><section class="panel" data-panel="risk"><div class="panel-title"><span>风险命中</span><span class="panel-actions"><span>RULES + AI</span><button class="room-action" data-action="risk-drill" type="button">风险演练</button><button class="room-action" data-action="export-risks" type="button">导出风险点</button></span></div><div class="list" data-role="risk-list"></div></section></div></div>' +
       '</section>';
   }
 
@@ -1204,6 +1260,63 @@
   function persistRuntimeUrls() {
     saveRoomUrls(runtimes.map(function (runtime) { return runtime.url; }));
   }
+
+  const drillModal = document.querySelector('[data-role="drill-modal"]');
+  const drillForm = document.querySelector('[data-role="drill-form"]');
+  const drillTemplate = drillForm.querySelector('[data-role="drill-template"]');
+  const drillText = drillForm.querySelector('[data-role="drill-text"]');
+  const drillSubmit = drillForm.querySelector('[data-role="drill-submit"]');
+  let drillRuntime = null;
+  let drillRequestId = 0;
+
+  function applyDrillTemplate() {
+    drillText.value = RISK_DRILL_TEMPLATES[drillTemplate.value] || "";
+    if (drillTemplate.value === "custom") drillText.focus();
+  }
+
+  function openRiskDrill(runtime) {
+    drillRuntime = runtime;
+    drillTemplate.value = "safety";
+    applyDrillTemplate();
+    drillForm.querySelector('[data-role="drill-room"]').textContent = "演练目标：直播间 " + runtime.roomNumber;
+    drillSubmit.disabled = false;
+    drillSubmit.textContent = "开始演练";
+    drillModal.hidden = false;
+  }
+
+  function closeRiskDrill() {
+    drillRequestId += 1;
+    drillModal.hidden = true;
+    drillRuntime = null;
+    drillSubmit.disabled = false;
+    drillSubmit.textContent = "开始演练";
+  }
+
+  drillTemplate.addEventListener("change", applyDrillTemplate);
+  drillText.addEventListener("input", function () { drillTemplate.value = "custom"; });
+  drillForm.querySelector('[data-action="cancel-drill"]').addEventListener("click", closeRiskDrill);
+  drillModal.addEventListener("click", function (event) { if (event.target === drillModal) closeRiskDrill(); });
+  drillForm.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    if (!drillRuntime || drillSubmit.disabled) return;
+    const requestId = ++drillRequestId;
+    const activeRuntime = drillRuntime;
+    try {
+      const risk = activeRuntime.runRiskDrill(drillText.value);
+      drillSubmit.disabled = true;
+      drillSubmit.textContent = "分析中";
+      await risk.analysisPromise;
+      if (risk.aiStatus !== "done") throw new Error(risk.aiError || "AI 分析失败");
+      if (requestId !== drillRequestId) return;
+      activeRuntime.setStatus("ok", "风险演练完成");
+      closeRiskDrill();
+    } catch (error) {
+      if (requestId !== drillRequestId) return;
+      activeRuntime.setStatus("bad", String(error.message || error));
+      drillSubmit.disabled = false;
+      drillSubmit.textContent = "重新演练";
+    }
+  });
 
   document.querySelector('[data-action="connect-all"]').addEventListener("click", function () {
     runtimes.forEach(function (runtime) {

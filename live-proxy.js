@@ -64,6 +64,8 @@ const RISK_AI_CACHE = new Map();
 const RISK_AI_PENDING = new Map();
 const RISK_AI_RATE = new Map();
 const RISK_AI_GLOBAL_RATE = [];
+const RISK_AI_DRILL_RATE = new Map();
+const RISK_AI_DRILL_GLOBAL_RATE = [];
 const SMALL_APPLIANCE_RISK_KEYWORDS = [
   "漏电", "触电", "起火", "着火", "爆炸", "冒烟", "烧焦", "短路", "过热", "烫伤", "异味", "电线发热", "插头发热", "自动断电失灵", "干烧", "炸锅",
   "不发货", "少发", "漏发", "破损", "坏了", "不能用", "无法启动", "质量问题", "退货", "退款", "售后", "保修", "拒绝退款", "投诉", "举报", "骗子", "假货", "虚假宣传",
@@ -932,22 +934,26 @@ async function analyzeRiskWithLLM(input) {
   return pending;
 }
 
-function allowRiskAIRequest(req, roomId) {
-  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+function allowRiskAIRequest(req, roomId, isDrill) {
+  const forwardedChain = String(req.headers["x-forwarded-for"] || "").split(",").map(item => item.trim()).filter(Boolean);
   const socketAddress = req.socket.remoteAddress || "unknown";
-  const identity = PUBLIC_MODE ? (forwarded || socketAddress) : socketAddress;
+  const identity = PUBLIC_MODE ? (forwardedChain[forwardedChain.length - 1] || socketAddress) : socketAddress;
   const key = identity + "|" + roomId;
   const now = Date.now();
-  while (RISK_AI_GLOBAL_RATE.length && now - RISK_AI_GLOBAL_RATE[0] >= 60000) RISK_AI_GLOBAL_RATE.shift();
-  if (RISK_AI_GLOBAL_RATE.length >= 60) return false;
-  const recent = (RISK_AI_RATE.get(key) || []).filter(time => now - time < 60000);
-  if (recent.length >= 20) return false;
+  const rateMap = isDrill ? RISK_AI_DRILL_RATE : RISK_AI_RATE;
+  const perMinuteLimit = isDrill ? 5 : 20;
+  const recent = (rateMap.get(key) || []).filter(time => now - time < 60000);
+  if (recent.length >= perMinuteLimit) return false;
+  const globalRate = isDrill ? RISK_AI_DRILL_GLOBAL_RATE : RISK_AI_GLOBAL_RATE;
+  const globalLimit = isDrill ? 15 : 60;
+  while (globalRate.length && now - globalRate[0] >= 60000) globalRate.shift();
+  if (globalRate.length >= globalLimit) return false;
+  globalRate.push(now);
   recent.push(now);
-  RISK_AI_GLOBAL_RATE.push(now);
-  RISK_AI_RATE.set(key, recent);
-  if (RISK_AI_RATE.size > 500) {
-    for (const [entryKey, times] of RISK_AI_RATE) {
-      if (!times.some(time => now - time < 60000)) RISK_AI_RATE.delete(entryKey);
+  rateMap.set(key, recent);
+  if (rateMap.size > 500) {
+    for (const [entryKey, times] of rateMap) {
+      if (!times.some(time => now - time < 60000)) rateMap.delete(entryKey);
     }
   }
   return true;
@@ -1014,7 +1020,7 @@ function getDiagnostics() {
   return {
     ok: stalledTranscodes === 0,
     service: "livewatch-proxy",
-    version: "3.5",
+    version: "3.6",
     uptimeSec: Math.floor(process.uptime()),
     publicMode: PUBLIC_MODE,
     dependencies: {
@@ -1525,8 +1531,9 @@ const server = http.createServer(async (req, res) => {
       if (!source || !text || !hits.length) return json(res, 400, { ok: false, reason: "风险点信息不完整" });
       const verifiedHits = hits.filter(hit => RISK_AI_ALLOWED_KEYWORDS.includes(hit) && text.includes(hit));
       if (!verifiedHits.length) return json(res, 400, { ok: false, reason: "文本未命中服务端风险关键词" });
+      const isDrill = input.drill === true && source === "话术" && actor === "人工演练";
       if (!isLLMConfigured()) return json(res, 503, { ok: false, reason: "AI 风险分析未配置" });
-      if (!allowRiskAIRequest(req, roomId)) return json(res, 429, { ok: false, reason: "AI 分析请求过于频繁" });
+      if (!allowRiskAIRequest(req, roomId, isDrill)) return json(res, 429, { ok: false, reason: isDrill ? "风险演练过于频繁，请稍后再试" : "AI 分析请求过于频繁" });
       const contextInput = input.context && typeof input.context === "object" ? input.context : {};
       const cleanList = (value, maxItems) => Array.isArray(value) ? value.slice(-maxItems).map(item => String(item || "").trim().slice(0, 300)).filter(Boolean) : [];
       const analysis = await analyzeRiskWithLLM({
