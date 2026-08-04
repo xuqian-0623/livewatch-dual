@@ -14,6 +14,7 @@
 .item.member-event{color:var(--muted);background:rgba(40,215,208,.045)}
 .item.member-event .user{color:var(--cyan)}
 .item.member-event .event-text{font-style:italic;color:#9fb0c8}
+.panel-actions{display:flex;align-items:center;gap:7px}.panel-actions .room-action{padding:3px 7px;font-size:10px}.risk-item .ai-grid{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.08)}.risk-item .ai-label{color:var(--muted);font-size:10px}.risk-item .ai-value{color:#cbd5e5}.risk-level{display:inline-flex;margin-left:7px;padding:1px 6px;border-radius:10px;font-size:10px}.risk-level.high{color:#ffd9dd;background:rgba(255,92,108,.2)}.risk-level.medium{color:#ffe8ac;background:rgba(244,201,93,.16)}.risk-level.low{color:#bcf1c9;background:rgba(82,210,115,.15)}
 </style>
 </head>
 <body>
@@ -48,7 +49,7 @@
   const DASHBOARD_ACTIVATED_AT = Date.now();
   const DEFAULT_KEYWORDS = ["投诉", "退款", "骗子", "举报", "卡顿", "黑屏", "假货", "最后一天", "绝对", "最好", "保证赚钱"];
   const MAX_ITEMS = 240;
-  let deploymentInfo = { publicMode: false, xunfeiConfigured: false };
+  let deploymentInfo = { publicMode: false, xunfeiConfigured: false, llmConfigured: false };
 
   function safeJson(value, fallback) {
     try { return JSON.parse(value); } catch (error) { return fallback; }
@@ -191,6 +192,9 @@
       });
       this.q('[data-action="play"]').addEventListener("click", function () {
         runtime.unlockAudioAndPlay();
+      });
+      this.q('[data-action="export-risks"]').addEventListener("click", function () {
+        runtime.exportRisks();
       });
       this.video.addEventListener("loadstart", function () {
         if (!runtime.manualStopped && !runtime.hasFirstFrame) runtime.setVideoState("视频正在加载", "已创建播放器，等待媒体数据");
@@ -906,7 +910,7 @@
           active.segmentId = message.segmentId;
           active.isFinal = !!message.isFinal;
         }
-        this.checkRisks(text, "话术", "主播");
+        if (message.isFinal) this.checkRisks(text, "话术", "主播");
       } else if (!active || active.isFinal) {
         this.transcripts.push({ time: Date.now(), text: text, isFinal: !!message.isFinal, segmentId: message.segmentId });
         this.counts.transcript += 1;
@@ -926,12 +930,107 @@
       const signature = source + "|" + text + "|" + hits.join(",");
       const latest = this.risks.length ? this.risks[this.risks.length - 1] : null;
       if (latest && latest.signature === signature && Date.now() - latest.time < 5000) return;
-      this.risks.push({ time: Date.now(), source: source, actor: actor, text: text, hits: hits, signature: signature });
+      const risk = {
+        id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2),
+        time: Date.now(),
+        source: source,
+        actor: actor,
+        text: text,
+        hits: hits,
+        signature: signature,
+        aiStatus: deploymentInfo.llmConfigured ? "pending" : "unconfigured",
+        ai: null,
+        aiError: ""
+      };
+      this.risks.push(risk);
       if (this.risks.length > MAX_ITEMS) this.risks.shift();
       this.counts.risk += 1;
       this.renderRisks();
       this.renderKpis();
       this.renderTabCounts();
+      if (deploymentInfo.llmConfigured) this.analyzeRisk(risk);
+    }
+
+    buildRiskContext(riskTime) {
+      const recentDanmaku = this.danmaku.filter(function (item) {
+        return item.type === "chat" && item.time <= riskTime;
+      }).slice(-8).map(function (item) {
+        return timeText(item.time) + " " + item.userName + "：" + item.content;
+      });
+      const recentTranscripts = this.transcripts.filter(function (item) {
+        return item.time <= riskTime;
+      }).slice(-6).map(function (item) {
+        return timeText(item.time) + " 主播：" + item.text;
+      });
+      return { recentDanmaku: recentDanmaku, recentTranscripts: recentTranscripts };
+    }
+
+    async analyzeRisk(risk) {
+      const requestEpoch = this.epoch;
+      try {
+        const response = await fetchWithTimeout("/api/risk/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            roomId: this.roomId,
+            source: risk.source,
+            actor: risk.actor,
+            text: risk.text,
+            hits: risk.hits,
+            context: this.buildRiskContext(risk.time)
+          })
+        }, 25000);
+        const data = await response.json();
+        if (!response.ok || !data.ok || !data.analysis) throw new Error(data.reason || "AI 分析失败");
+        if (requestEpoch !== this.epoch || this.risks.indexOf(risk) < 0) return;
+        risk.aiStatus = "done";
+        risk.ai = data.analysis;
+      } catch (error) {
+        if (requestEpoch !== this.epoch || this.risks.indexOf(risk) < 0) return;
+        risk.aiStatus = "error";
+        risk.aiError = String(error.message || error).slice(0, 100);
+      }
+      this.renderRisks();
+    }
+
+    csvCell(value) {
+      let text = String(value == null ? "" : value);
+      if (/^[\s\u0000-\u001f]*[=+\-@]/.test(text)) text = "'" + text;
+      return '"' + text.replace(/"/g, '""') + '"';
+    }
+
+    exportRisks() {
+      if (!this.risks.length) {
+        this.setStatus("pending", "暂无风险点可导出");
+        return;
+      }
+      const runtime = this;
+      const header = ["时间", "直播间", "来源", "相关人员", "风险原文", "命中关键词", "AI风险等级", "AI风险类型", "AI原因", "AI建议", "AI状态"];
+      const rows = this.risks.map(function (risk) {
+        const ai = risk.ai || {};
+        const status = risk.aiStatus === "done" ? "已分析" : risk.aiStatus === "pending" ? "分析中" : risk.aiStatus === "unconfigured" ? "AI未配置" : "分析失败";
+        return [
+          new Date(risk.time).toLocaleString("zh-CN", { hour12: false }),
+          "直播间 " + runtime.roomNumber,
+          risk.source,
+          risk.actor,
+          risk.text,
+          risk.hits.join("、"),
+          ai.level || "",
+          ai.type || "",
+          ai.reason || "",
+          ai.suggestion || "",
+          status
+        ].map(function (cell) { return runtime.csvCell(cell); }).join(",");
+      });
+      const blob = new Blob(["\uFEFF" + header.map(function (cell) { return runtime.csvCell(cell); }).join(",") + "\r\n" + rows.join("\r\n")], { type: "text/csv;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "LiveWatch_直播间" + this.roomNumber + "_风险点_" + new Date().toISOString().slice(0, 10) + ".csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(function () { URL.revokeObjectURL(link.href); }, 1500);
     }
 
     setView(view) {
@@ -1024,14 +1123,29 @@
       const list = this.q('[data-role="risk-list"]');
       list.textContent = "";
       if (!this.risks.length) {
-        appendText(list, "div", "empty", "暂未命中本地关键词");
+        appendText(list, "div", "empty", "暂未命中风险关键词");
         return;
       }
       this.risks.slice().reverse().slice(0, 100).forEach(function (risk) {
         const row = appendText(list, "div", "risk-item", "");
-        appendText(row, "b", "", risk.source + "命中 · " + risk.hits.join("、"));
+        const title = appendText(row, "b", "", risk.source + "命中 · " + risk.hits.join("、"));
+        if (risk.aiStatus === "done" && risk.ai) {
+          appendText(title, "span", "risk-level " + (risk.ai.level === "高" ? "high" : risk.ai.level === "低" ? "low" : "medium"), risk.ai.level + "风险");
+        }
         appendText(row, "span", "time", " " + timeText(risk.time));
         appendText(row, "p", "", risk.actor + "：" + risk.text);
+        const grid = appendText(row, "div", "ai-grid", "");
+        if (risk.aiStatus === "done" && risk.ai) {
+          appendText(grid, "span", "ai-label", "类型"); appendText(grid, "span", "ai-value", risk.ai.type);
+          appendText(grid, "span", "ai-label", "原因"); appendText(grid, "span", "ai-value", risk.ai.reason);
+          appendText(grid, "span", "ai-label", "建议"); appendText(grid, "span", "ai-value", risk.ai.suggestion);
+        } else if (risk.aiStatus === "pending") {
+          appendText(grid, "span", "ai-label", "AI"); appendText(grid, "span", "ai-value", "正在结合上下文分析…");
+        } else if (risk.aiStatus === "unconfigured") {
+          appendText(grid, "span", "ai-label", "AI"); appendText(grid, "span", "ai-value", "未配置模型，已保留关键词风险点");
+        } else {
+          appendText(grid, "span", "ai-label", "AI"); appendText(grid, "span", "ai-value", "分析失败：" + String(risk.aiError || "请稍后重试"));
+        }
       });
     }
 
@@ -1067,7 +1181,7 @@
       '<div class="video-wrap"><video muted playsinline preload="auto" crossorigin="anonymous"></video><div class="video-state" data-role="video-state"><div><strong data-role="video-state-title">直播间未连接</strong><span data-role="video-state-detail">页面加载后自动连接</span></div></div><div class="play-gate" data-role="play-gate" hidden><button data-action="play" type="button">点击开始播放并转写</button></div><div class="stream-label" data-role="stream-label">STREAM</div></div>' +
       '<div class="kpis"><div class="kpi"><b data-kpi="online">0</b><span>在线</span></div><div class="kpi"><b data-kpi="danmaku">0</b><span>弹幕</span></div><div class="kpi"><b data-kpi="transcript">0</b><span>话术段</span></div><div class="kpi"><b data-kpi="likes">0</b><span>点赞</span></div><div class="kpi risk"><b data-kpi="risk">0</b><span>风险</span></div></div>' +
       '<div class="data-area"><nav class="tabs" data-role="tabs"><button class="tab active" data-view="dual" type="button">双视图</button><button class="tab" data-view="danmaku" type="button">弹幕 <span class="tab-count" data-count="danmaku">0</span></button><button class="tab" data-view="transcript" type="button">话术 <span class="tab-count" data-count="transcript">0</span></button><button class="tab" data-view="risk" type="button">风险 <span class="tab-count" data-count="risk">0</span></button><span data-role="asr-state" style="margin-left:auto;color:var(--muted);font-size:10px">ASR 待机</span></nav>' +
-      '<div class="panels" data-role="panels" data-view="dual"><section class="panel" data-panel="danmaku"><div class="panel-title"><span>实时弹幕</span><span data-role="danmaku-source">DOUYIN WS</span></div><div class="list" data-role="danmaku-list"></div></section><section class="panel" data-panel="transcript"><div class="panel-title"><span>主播话术</span><span>LIVE ASR</span></div><div class="list" data-role="transcript-list"></div></section><section class="panel" data-panel="risk"><div class="panel-title"><span>风险命中</span><span>LOCAL RULES</span></div><div class="list" data-role="risk-list"></div></section></div></div>' +
+      '<div class="panels" data-role="panels" data-view="dual"><section class="panel" data-panel="danmaku"><div class="panel-title"><span>实时弹幕</span><span data-role="danmaku-source">DOUYIN WS</span></div><div class="list" data-role="danmaku-list"></div></section><section class="panel" data-panel="transcript"><div class="panel-title"><span>主播话术</span><span>LIVE ASR</span></div><div class="list" data-role="transcript-list"></div></section><section class="panel" data-panel="risk"><div class="panel-title"><span>风险命中</span><span class="panel-actions"><span>RULES + AI</span><button class="room-action" data-action="export-risks" type="button">导出风险点</button></span></div><div class="list" data-role="risk-list"></div></section></div></div>' +
       '</section>';
   }
 
@@ -1155,8 +1269,20 @@
   }).then(function (health) {
     deploymentInfo = {
       publicMode: Boolean(health.publicMode),
-      xunfeiConfigured: Boolean(health.xunfeiConfigured)
+      xunfeiConfigured: Boolean(health.xunfeiConfigured),
+      llmConfigured: Boolean(health.llmConfigured)
     };
+    if (deploymentInfo.llmConfigured) {
+      runtimes.forEach(function (runtime) {
+        runtime.risks.forEach(function (risk) {
+          if (risk.aiStatus === "unconfigured") {
+            risk.aiStatus = "pending";
+            runtime.analyzeRisk(risk);
+          }
+        });
+        runtime.renderRisks();
+      });
+    }
     if (deploymentInfo.publicMode) {
       roomUrls.splice(0, roomUrls.length, DEFAULT_ROOMS[0], DEFAULT_ROOMS[1]);
       runtimes.forEach(function (runtime, index) {
