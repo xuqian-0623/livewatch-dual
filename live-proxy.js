@@ -60,6 +60,14 @@ const SERVER_LLM_CONFIG = {
 };
 const LLM_TIMEOUT_MS = Math.max(5000, Number(process.env.LLM_TIMEOUT_MS) || 20000);
 const LLM_MAX_CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.LLM_MAX_CONCURRENCY) || 2));
+const WECOM_RISK_CONFIG = {
+  enabled: String(process.env.WECOM_RISK_NOTIFY_ENABLED || "true").trim().toLowerCase() !== "false",
+  webhookUrl: String(process.env.WECOM_RISK_WEBHOOK_URL || "").trim(),
+  cardUrl: String(process.env.WECOM_RISK_CARD_URL || "https://livewatch-dual.onrender.com/").trim()
+};
+const WECOM_TIMEOUT_MS = Math.max(3000, Math.min(15000, Number(process.env.WECOM_RISK_TIMEOUT_MS) || 8000));
+const WECOM_DEDUPE_TTL_MS = Math.max(60000, Math.min(30 * 60 * 1000, Number(process.env.WECOM_RISK_DEDUPE_TTL_MS) || 5 * 60 * 1000));
+const WECOM_RISK_NOTIFICATIONS = new Map();
 const RISK_AI_CACHE = new Map();
 const RISK_AI_PENDING = new Map();
 const RISK_AI_RATE = new Map();
@@ -107,6 +115,23 @@ function validateRoomId(roomId) {
 
 function isLLMConfigured() {
   return Boolean(SERVER_LLM_CONFIG.apiBase && SERVER_LLM_CONFIG.apiKey && SERVER_LLM_CONFIG.model);
+}
+
+function getWeComWebhookUrl() {
+  if (!WECOM_RISK_CONFIG.enabled || !WECOM_RISK_CONFIG.webhookUrl) return null;
+  try {
+    const url = new URL(WECOM_RISK_CONFIG.webhookUrl);
+    if (url.protocol !== "https:" || url.hostname !== "qyapi.weixin.qq.com" || url.pathname !== "/cgi-bin/webhook/send") return null;
+    const key = String(url.searchParams.get("key") || "");
+    if (!/^[A-Za-z0-9-]{20,128}$/.test(key)) return null;
+    return url;
+  } catch (error) {
+    return null;
+  }
+}
+
+function isWeComConfigured() {
+  return Boolean(getWeComWebhookUrl());
 }
 
 function validateLLMApiUrl(rawUrl) {
@@ -896,6 +921,155 @@ function postJson(url, headers, payload, timeoutMs) {
   });
 }
 
+function cleanNotificationText(value) {
+  return String(value == null ? "" : value).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function truncateUtf8(value, maxBytes) {
+  const text = cleanNotificationText(value);
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
+  let result = "";
+  for (const character of text) {
+    if (Buffer.byteLength(result + character + "…", "utf8") > maxBytes) break;
+    result += character;
+  }
+  return result + "…";
+}
+
+function truncateChars(value, maxChars) {
+  const characters = Array.from(cleanNotificationText(value));
+  if (characters.length <= maxChars) return characters.join("");
+  return characters.slice(0, Math.max(0, maxChars - 1)).join("") + "…";
+}
+
+function formatChinaTime(value) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(value || new Date()).replace(/\//g, "-");
+}
+
+function weComRiskSignature(input, analysis) {
+  const compact = [input.roomId, input.source, input.text, (input.hits || []).slice().sort().join(","), analysis.level, analysis.type].join("|");
+  return crypto.createHash("sha256").update(compact).digest("hex");
+}
+
+function buildWeComRiskCard(input, analysis) {
+  const roomNumber = input.roomId === "dual-room-1" ? "1" : "2";
+  const roomUrl = PUBLIC_ROOM_MAP.get(input.roomId) || WECOM_RISK_CONFIG.cardUrl;
+  const sourceLabel = input.source === "话术" ? "当前主播话术" : "当前用户弹幕";
+  return {
+    msgtype: "template_card",
+    template_card: {
+      card_type: "text_notice",
+      source: {
+        desc: "LiveWatch 风险监控",
+        desc_color: 2
+      },
+      main_title: {
+        title: truncateChars(`直播风险预警 · ${analysis.level}风险`, 26),
+        desc: truncateChars(formatChinaTime(new Date()), 30)
+      },
+      quote_area: {
+        type: 0,
+        title: "监控提醒",
+        quote_text: truncateUtf8("请及时复核直播内容，并根据整改建议处理。此消息由 AI 风险分析确认后自动发送。", 300)
+      },
+      sub_title_text: truncateChars(`${sourceLabel}：${input.text}`, 112),
+      horizontal_content_list: [
+        { keyname: "直播间", value: truncateChars(`直播间 ${roomNumber}`, 26) },
+        { keyname: "预警词", value: truncateChars((input.hits || []).join("、"), 26) },
+        { keyname: "违规点", value: truncateChars(analysis.type, 26) },
+        { keyname: "原文", value: truncateChars(input.text, 26) },
+        { keyname: "风险原因", value: truncateChars(analysis.reason, 26) },
+        { keyname: "整改建议", value: truncateChars(analysis.suggestion, 26) }
+      ],
+      card_action: {
+        type: 1,
+        url: WECOM_RISK_CONFIG.cardUrl || roomUrl
+      }
+    }
+  };
+}
+
+function sendWeComPayload(payload) {
+  return new Promise((resolve, reject) => {
+    const parsed = getWeComWebhookUrl();
+    if (!parsed) return reject(new Error("企业微信机器人未配置或地址无效"));
+    const body = Buffer.from(JSON.stringify(payload));
+    const request = https.request({
+      protocol: parsed.protocol,
+      hostname: parsed.hostname,
+      port: parsed.port || 443,
+      path: parsed.pathname + parsed.search,
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": body.length }
+    }, response => {
+      const chunks = [];
+      let total = 0;
+      response.on("data", chunk => {
+        total += chunk.length;
+        if (total <= 64 * 1024) chunks.push(chunk);
+        else request.destroy(new Error("企业微信响应过大"));
+      });
+      response.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        if (response.statusCode < 200 || response.statusCode >= 300) return reject(new Error(`企业微信 HTTP ${response.statusCode}`));
+        try {
+          const result = JSON.parse(text);
+          if (Number(result.errcode) !== 0) return reject(new Error(`企业微信发送失败: ${Number(result.errcode) || "UNKNOWN"} ${truncateUtf8(result.errmsg || "", 120)}`));
+          resolve(result);
+        } catch (error) {
+          reject(error.message && error.message.startsWith("企业微信") ? error : new Error("企业微信返回了无效 JSON"));
+        }
+      });
+    });
+    request.setTimeout(WECOM_TIMEOUT_MS, () => request.destroy(new Error("企业微信发送超时")));
+    request.on("error", reject);
+    request.end(body);
+  });
+}
+
+async function sendWeComRiskNotification(input, analysis) {
+  const payload = buildWeComRiskCard(input, analysis);
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await sendWeComPayload(payload);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await new Promise(resolve => setTimeout(resolve, attempt * 500));
+    }
+  }
+  throw lastError || new Error("企业微信发送失败");
+}
+
+function queueWeComRiskNotification(input, analysis) {
+  if (!isWeComConfigured() || analysis.verdict !== "风险") return false;
+  const now = Date.now();
+  const signature = weComRiskSignature(input, analysis);
+  for (const [key, entry] of WECOM_RISK_NOTIFICATIONS) {
+    if (!entry || entry.expiresAt <= now) WECOM_RISK_NOTIFICATIONS.delete(key);
+  }
+  if (WECOM_RISK_NOTIFICATIONS.has(signature)) return false;
+  WECOM_RISK_NOTIFICATIONS.set(signature, { state: "pending", expiresAt: now + WECOM_DEDUPE_TTL_MS });
+  sendWeComRiskNotification(input, analysis).then(() => {
+    WECOM_RISK_NOTIFICATIONS.set(signature, { state: "sent", expiresAt: Date.now() + WECOM_DEDUPE_TTL_MS });
+    log(`[wecom] 风险预警已发送: roomId=${input.roomId} level=${analysis.level} type=${truncateUtf8(analysis.type, 60)}`);
+  }).catch(error => {
+    WECOM_RISK_NOTIFICATIONS.delete(signature);
+    log(`[wecom] 风险预警发送失败: roomId=${input.roomId} reason=${sanitizeDiagnosticText(error.message)}`);
+  });
+  return true;
+}
+
 function withRiskAISlot(work) {
   return new Promise((resolve, reject) => {
     const run = () => {
@@ -1063,14 +1237,15 @@ function getDiagnostics() {
   return {
     ok: stalledTranscodes === 0,
     service: "livewatch-proxy",
-    version: "3.8",
+    version: "3.9",
     uptimeSec: Math.floor(process.uptime()),
     publicMode: PUBLIC_MODE,
     dependencies: {
       ffmpeg: Boolean(FFMPEG_PATH),
       ytdlp: Boolean(YTDLP_PATH),
       xunfeiConfigured: Boolean(SERVER_XUNFEI_CONFIG.appId && SERVER_XUNFEI_CONFIG.apiKey && SERVER_XUNFEI_CONFIG.apiSecret),
-      llmConfigured: isLLMConfigured()
+      llmConfigured: isLLMConfigured(),
+      wecomConfigured: isWeComConfigured()
     },
     summary: {
       transcodeEntries: TRANSCODES.size,
@@ -1554,6 +1729,7 @@ const server = http.createServer(async (req, res) => {
       hasYtdlp: !!YTDLP_PATH,
       xunfeiConfigured: diagnostics.dependencies.xunfeiConfigured,
       llmConfigured: diagnostics.dependencies.llmConfigured,
+      wecomConfigured: diagnostics.dependencies.wecomConfigured,
       riskKeywords: RISK_AI_ALLOWED_KEYWORDS,
       riskProfile: ELECTRIC_POT_RISK_PROFILE
     });
@@ -1561,7 +1737,7 @@ const server = http.createServer(async (req, res) => {
 
   if (p === "/api/diagnostics") return json(res, 200, getDiagnostics());
 
-  if (p === "/api/risk/analyze" && req.method === "POST") {
+  if ((p === "/api/risk/analyze" || p === "/api/risk/drill") && req.method === "POST") {
     const body = await readSafeBody(32768);
     if (body == null) return json(res, 413, { ok: false, reason: "请求内容过大" });
     try {
@@ -1575,12 +1751,13 @@ const server = http.createServer(async (req, res) => {
       if (!source || !text || !hits.length) return json(res, 400, { ok: false, reason: "风险点信息不完整" });
       const verifiedHits = hits.filter(hit => RISK_AI_ALLOWED_KEYWORDS.includes(hit) && text.includes(hit));
       if (!verifiedHits.length) return json(res, 400, { ok: false, reason: "文本未命中服务端风险关键词" });
-      const isDrill = input.drill === true && source === "话术" && actor === "人工演练";
+      const isDrill = p === "/api/risk/drill";
+      if (isDrill && (source !== "话术" || actor !== "人工演练" || !input.drill)) return json(res, 400, { ok: false, reason: "风险演练请求标记不完整" });
       if (!isLLMConfigured()) return json(res, 503, { ok: false, reason: "AI 风险分析未配置" });
       if (!allowRiskAIRequest(req, roomId, isDrill)) return json(res, 429, { ok: false, reason: isDrill ? "风险演练过于频繁，请稍后再试" : "AI 分析请求过于频繁" });
       const contextInput = input.context && typeof input.context === "object" ? input.context : {};
       const cleanList = (value, maxItems) => Array.isArray(value) ? value.slice(-maxItems).map(item => String(item || "").trim().slice(0, 300)).filter(Boolean) : [];
-      const analysis = await analyzeRiskWithLLM({
+      const riskInput = {
         roomId,
         source,
         actor,
@@ -1590,8 +1767,10 @@ const server = http.createServer(async (req, res) => {
           recentDanmaku: cleanList(contextInput.recentDanmaku, 12),
           recentTranscripts: cleanList(contextInput.recentTranscripts, 12)
         }
-      });
-      return json(res, 200, { ok: true, analysis });
+      };
+      const analysis = await analyzeRiskWithLLM(riskInput);
+      const notificationQueued = !isDrill && analysis.verdict === "风险" ? queueWeComRiskNotification(riskInput, analysis) : false;
+      return json(res, 200, { ok: true, analysis, notificationQueued });
     } catch (error) {
       log(`[risk-ai] 分析失败: ${sanitizeDiagnosticText(error.message)}`);
       return json(res, 502, { ok: false, reason: sanitizeDiagnosticText(error.message || "AI 分析失败") });

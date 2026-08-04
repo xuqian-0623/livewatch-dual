@@ -22,3 +22,7 @@ services:
         sync: false
       - key: XFYUN_LLM_MODEL_ID
         sync: false
+      - key: WECOM_RISK_WEBHOOK_URL
+        sync: false
+      - key: WECOM_RISK_NOTIFY_ENABLED
+        value: "true"

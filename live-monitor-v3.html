@@ -1063,7 +1063,7 @@
     async analyzeRisk(risk) {
       const requestEpoch = this.epoch;
       try {
-        const response = await fetchWithTimeout("/api/risk/analyze", {
+        const response = await fetchWithTimeout(risk.isDrill ? "/api/risk/drill" : "/api/risk/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1073,7 +1073,7 @@
             text: risk.text,
             hits: risk.hits,
             drill: Boolean(risk.isDrill),
-            context: this.buildRiskContext(risk.time)
+            context: Object.assign({}, this.buildRiskContext(risk.time), risk.isDrill ? { drill: true } : {})
           })
         }, 25000);
         const data = await response.json();
