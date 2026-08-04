@@ -44,7 +44,7 @@
     <div class="notice">调用真实讯飞模型；结果仅用于测试，不计入正式风险统计，也不会导出到风险 CSV。</div>
     <div class="field"><label for="risk-drill-template">演练类型</label><select id="risk-drill-template" data-role="drill-template"><option value="safety">产品与用电安全</option><option value="absolute">绝对化宣传</option><option value="medical">医疗与健康功效</option><option value="promotion">虚假促销</option><option value="quality">质量过度承诺</option><option value="custom">自定义话术</option></select></div>
     <div class="field"><label for="risk-drill-text">测试话术</label><textarea id="risk-drill-text" data-role="drill-text" maxlength="1000"></textarea></div>
-    <div class="drill-meta"><span data-role="drill-room">直播间演练</span><span>至少需要命中一个风险词</span></div>
+    <div class="drill-meta"><span data-role="drill-room">直播间演练</span><span>候选词触发后由 AI 结合语境判定</span></div>
     <div class="modal-actions"><button class="top-action" type="button" data-action="cancel-drill">取消</button><button class="top-action primary" type="submit" data-role="drill-submit">开始演练</button></div>
   </form>
 </div>
@@ -57,14 +57,14 @@
   const ROOM_KEY = "lwp_v3_rooms_v3";
   const DASHBOARD_SESSION_ID = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2);
   const DASHBOARD_ACTIVATED_AT = Date.now();
-  const DEFAULT_KEYWORDS = ["漏电", "触电", "起火", "着火", "爆炸", "冒烟", "烧焦", "短路", "过热", "烫伤", "异味", "电线发热", "插头发热", "自动断电失灵", "干烧", "炸锅", "不发货", "少发", "漏发", "破损", "坏了", "不能用", "无法启动", "质量问题", "退货", "退款", "售后", "保修", "拒绝退款", "投诉", "举报", "骗子", "假货", "虚假宣传", "绝对安全", "绝对不会", "永不", "永久", "百分之百", "100%", "零风险", "完全无害", "无任何副作用", "最好", "第一", "唯一", "顶级", "最强", "全能", "全网最低", "最低价", "历史最低", "最后一天", "仅限今天", "最后一单", "马上涨价", "马上恢复原价", "以后再也没有", "错过不再有", "国家认证", "国家级", "官方指定", "权威推荐", "行业第一", "销量第一", "全网第一", "专利产品", "食品级", "医用级", "治疗", "治愈", "抗癌", "降血压", "降血糖", "改善疾病", "养生治病", "减肥", "瘦身", "排毒", "抗菌率", "杀菌率", "除螨率", "绝对不粘", "永不粘锅", "永久耐用", "终身质保", "保证不坏", "保证有效", "一定有效", "无油烟", "零油烟", "零甲醛", "没有辐射", "零辐射"];
+  const DEFAULT_KEYWORDS = ["漏电", "触电", "起火", "着火", "冒烟", "烧焦", "短路", "插头发热", "电源线发热", "电线发热", "插头松动", "接触不良", "插拔打火", "异味", "塑料味", "烫伤", "温控失灵", "温控器故障", "自动断电失灵", "防干烧失灵", "干烧保护失灵", "干烧", "不加热", "加热不均", "反复断电", "无法启动", "功率虚标", "耦合器进水", "耦合器烧坏", "底座进水", "底座漏水", "分体接口松动", "锅体晃动", "内胆变形", "锅体开裂", "锅盖炸裂", "玻璃盖炸裂", "手柄松动", "涂层脱落", "涂层掉漆", "不粘层脱落", "粘锅", "糊锅", "溢锅", "漏汤", "漏水", "绝不漏电", "不会漏电", "进水也不会漏电", "怎么用都不会漏电", "绝对安全", "绝对不会", "永不", "永久", "百分之百", "100%", "零风险", "完全无害", "随便干烧", "不用看锅", "不用看火", "永远不粘", "绝对不粘", "永不粘锅", "永久耐用", "保证不坏", "最好", "第一", "唯一", "顶级", "最强", "全网第一", "销量第一", "行业第一", "全网最低", "最低价", "历史最低", "最后一天", "仅限今天", "最后一单", "马上涨价", "马上恢复原价", "以后再也没有", "错过不再有", "国家认证", "国家级", "官方指定", "权威推荐", "专利产品", "3C认证", "CCC认证", "食品级", "食品接触级", "母婴级", "医用级", "治疗", "治愈", "降血压", "降血糖", "改善疾病", "养生治病", "减肥", "瘦身", "排毒", "抗菌率", "杀菌率", "除螨率", "无任何副作用", "终身质保", "永久保修", "只换不修", "无条件退款", "保证退款", "拒绝退款", "不发货", "少发", "漏发", "破损", "假货", "虚假宣传", "投诉", "举报"];
   const MAX_ITEMS = 240;
   const RISK_DRILL_TEMPLATES = {
-    safety: "这个插头有漏电的情况，用一会儿电线就发热，还出现了烧焦味。",
-    absolute: "这款产品绝对安全，百分之百不会坏，是全网最好的产品。",
-    medical: "这款养生壶可以治疗高血压，还能降血糖和排毒。",
-    promotion: "今天是最后一天，也是全网最低价，错过以后再也没有。",
-    quality: "这个锅保证不坏，终身质保，永不粘锅，而且完全没有油烟。",
+    safety: "这款分体式火锅进水也绝不漏电，可以随便冲洗底座。",
+    absolute: "这款多功能锅绝对安全，保证不坏，是全网第一。",
+    medical: "用这个电煮锅煮养生汤可以降血压、降血糖，还能排毒。",
+    promotion: "今天是历史最低价和最后一天，错过以后再也没有。",
+    quality: "这个电火锅终身质保、永不粘锅，涂层永久不会脱落。",
     custom: ""
   };
   let deploymentInfo = { publicMode: false, xunfeiConfigured: false, llmConfigured: false };
@@ -168,6 +168,7 @@
       this.transcripts = [];
       this.risks = [];
       this.drillRisks = [];
+      this.pendingRiskCandidates = [];
       this.counts = { danmaku: 0, transcript: 0, risk: 0, online: 0, likes: 0, gifts: 0 };
       this.streamRetries = 0;
       this.danmakuRetries = 0;
@@ -369,6 +370,7 @@
       }
       this.connecting = true;
       this.manualStopped = false;
+      this.clearPendingRiskCandidates();
       this.epoch += 1;
       const token = this.epoch;
       const connectButton = this.q('[data-action="connect"]');
@@ -428,6 +430,7 @@
     async stop() {
       this.manualStopped = true;
       this.connectedUrl = "";
+      this.clearPendingRiskCandidates();
       this.epoch += 1;
       this.connecting = false;
       await this.cleanupLocal(true);
@@ -703,11 +706,20 @@
       this.renderKpis();
     }
 
+    clearPendingRiskCandidates() {
+      this.pendingRiskCandidates.forEach(function (candidate) {
+        if (candidate.timer) clearTimeout(candidate.timer);
+      });
+      this.pendingRiskCandidates = [];
+    }
+
     resetRoomData() {
+      this.clearPendingRiskCandidates();
       this.danmaku = [];
       this.transcripts = [];
       this.risks = [];
       this.drillRisks = [];
+      this.pendingRiskCandidates = [];
       this.counts = { danmaku: 0, transcript: 0, risk: 0, online: 0, likes: 0, gifts: 0 };
       this.renderDanmaku();
       this.renderTranscripts();
@@ -948,30 +960,40 @@
     }
 
     checkRisks(text, source, actor) {
-      const hits = this.config.keywords.filter(function (keyword) { return keyword && text.includes(keyword); });
-      if (!hits.length) return;
-      const signature = source + "|" + text + "|" + hits.join(",");
-      const latest = this.risks.length ? this.risks[this.risks.length - 1] : null;
-      if (latest && latest.signature === signature && Date.now() - latest.time < 5000) return;
-      const risk = {
-        id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2),
-        time: Date.now(),
+      const cleanText = String(text || "").trim();
+      const hits = this.config.keywords.filter(function (keyword) { return keyword && cleanText.includes(keyword); });
+      if (!hits.length || !deploymentInfo.llmConfigured) return;
+      const signature = source + "|" + cleanText + "|" + hits.join(",");
+      const now = Date.now();
+      const duplicated = this.pendingRiskCandidates.concat(this.risks).some(function (item) {
+        return item.signature === signature && now - item.time < 15000;
+      });
+      if (duplicated) return;
+      const candidate = {
+        id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(now) + "-" + Math.random().toString(36).slice(2),
+        time: now,
         source: source,
         actor: actor,
-        text: text,
+        text: cleanText,
         hits: hits,
         signature: signature,
-        aiStatus: deploymentInfo.llmConfigured ? "pending" : "unconfigured",
+        aiStatus: "pending",
         ai: null,
-        aiError: ""
+        aiError: "",
+        candidateEpoch: this.epoch,
+        timer: null
       };
-      this.risks.push(risk);
-      if (this.risks.length > MAX_ITEMS) this.risks.shift();
-      this.counts.risk += 1;
-      this.renderRisks();
-      this.renderKpis();
-      this.renderTabCounts();
-      if (deploymentInfo.llmConfigured) this.analyzeRisk(risk);
+      const runtime = this;
+      this.pendingRiskCandidates.push(candidate);
+      candidate.timer = setTimeout(function () {
+        candidate.timer = null;
+        if (runtime.pendingRiskCandidates.indexOf(candidate) < 0) return;
+        if (candidate.candidateEpoch !== runtime.epoch) {
+          runtime.removeRiskCandidate(candidate);
+          return;
+        }
+        runtime.analyzeRisk(candidate);
+      }, 8000);
     }
 
     runRiskDrill(text) {
@@ -1002,17 +1024,40 @@
     }
 
     buildRiskContext(riskTime) {
+      const fromTime = riskTime - 90000;
+      const toTime = riskTime + 10000;
       const recentDanmaku = this.danmaku.filter(function (item) {
-        return item.type === "chat" && item.time <= riskTime;
-      }).slice(-8).map(function (item) {
+        return item.type === "chat" && item.time >= fromTime && item.time <= toTime;
+      }).slice(-12).map(function (item) {
         return timeText(item.time) + " " + item.userName + "：" + item.content;
       });
       const recentTranscripts = this.transcripts.filter(function (item) {
-        return item.time <= riskTime;
-      }).slice(-6).map(function (item) {
+        return item.time >= fromTime && item.time <= toTime;
+      }).slice(-12).map(function (item) {
         return timeText(item.time) + " 主播：" + item.text;
       });
       return { recentDanmaku: recentDanmaku, recentTranscripts: recentTranscripts };
+    }
+
+    removeRiskCandidate(risk) {
+      const index = this.pendingRiskCandidates.indexOf(risk);
+      if (index >= 0) this.pendingRiskCandidates.splice(index, 1);
+      if (risk.timer) {
+        clearTimeout(risk.timer);
+        risk.timer = null;
+      }
+    }
+
+    acceptOfficialRisk(risk, analysis) {
+      this.removeRiskCandidate(risk);
+      risk.aiStatus = "done";
+      risk.ai = analysis;
+      this.risks.push(risk);
+      if (this.risks.length > MAX_ITEMS) this.risks.shift();
+      this.counts.risk += 1;
+      this.renderRisks();
+      this.renderKpis();
+      this.renderTabCounts();
     }
 
     async analyzeRisk(risk) {
@@ -1033,17 +1078,35 @@
         }, 25000);
         const data = await response.json();
         if (!response.ok || !data.ok || !data.analysis) throw new Error(data.reason || "AI 分析失败");
-        const target = risk.isDrill ? this.drillRisks : this.risks;
-        if ((!risk.isDrill && requestEpoch !== this.epoch) || target.indexOf(risk) < 0) return;
-        risk.aiStatus = "done";
-        risk.ai = data.analysis;
+        if (risk.isDrill) {
+          if (this.drillRisks.indexOf(risk) < 0) return;
+          risk.aiStatus = "done";
+          risk.ai = data.analysis;
+          this.renderRisks();
+          return;
+        }
+        if (requestEpoch !== this.epoch) {
+          this.removeRiskCandidate(risk);
+          return;
+        }
+        if (this.pendingRiskCandidates.indexOf(risk) < 0) return;
+        if (data.analysis.verdict === "风险") this.acceptOfficialRisk(risk, data.analysis);
+        else this.removeRiskCandidate(risk);
       } catch (error) {
-        const target = risk.isDrill ? this.drillRisks : this.risks;
-        if ((!risk.isDrill && requestEpoch !== this.epoch) || target.indexOf(risk) < 0) return;
-        risk.aiStatus = "error";
-        risk.aiError = String(error.message || error).slice(0, 100);
+        if (risk.isDrill) {
+          if (this.drillRisks.indexOf(risk) < 0) return;
+          risk.aiStatus = "error";
+          risk.aiError = String(error.message || error).slice(0, 100);
+          this.renderRisks();
+          return;
+        }
+        if (requestEpoch !== this.epoch) {
+          this.removeRiskCandidate(risk);
+          return;
+        }
+        if (this.pendingRiskCandidates.indexOf(risk) < 0) return;
+        this.removeRiskCandidate(risk);
       }
-      this.renderRisks();
     }
 
     csvCell(value) {
@@ -1178,12 +1241,12 @@
       list.textContent = "";
       const displayRisks = this.risks.concat(this.drillRisks).sort(function (a, b) { return b.time - a.time; }).slice(0, 100);
       if (!displayRisks.length) {
-        appendText(list, "div", "empty", "暂未命中风险关键词");
+        appendText(list, "div", "empty", "暂未发现经 AI 确认的风险");
         return;
       }
       displayRisks.forEach(function (risk) {
         const row = appendText(list, "div", "risk-item" + (risk.isDrill ? " drill" : ""), "");
-        const title = appendText(row, "b", "", risk.source + "命中 · " + risk.hits.join("、"));
+        const title = appendText(row, "b", "", risk.source + (risk.isDrill ? "演练 · " : "风险 · ") + risk.hits.join("、"));
         if (risk.isDrill) appendText(title, "span", "drill-badge", "人工演练");
         if (risk.aiStatus === "done" && risk.ai) {
           appendText(title, "span", "risk-level " + (risk.ai.level === "高" ? "high" : risk.ai.level === "低" ? "low" : "medium"), risk.ai.level + "风险");
